@@ -1,0 +1,3 @@
+# NewsFetcher
+
+Mengambil URL
