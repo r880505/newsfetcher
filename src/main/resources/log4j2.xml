@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+        <!-- Console appender for info and debug levels -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %level %logger{50} \t : %msg%n"/>
+            <Filters>
+                <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </Console>
+
+        <!-- Console appender specifically for error level logs -->
+        <Console name="ConsoleError" target="SYSTEM_ERR">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %level %logger{50} \t : %msg%n%throwable{short}"/>
+            <Filters>
+                <ThresholdFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+        </Console>
+    </Appenders>
+
+    <Loggers>
+        <!-- Root logger with level info for handle info, debug and error log -->
+        <Root level="info">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="ConsoleError"/>
+        </Root>
+
+         <Logger name="org.apache.kafka" level="OFF" additivity="false"/>
+
+    </Loggers>
+</Configuration>
