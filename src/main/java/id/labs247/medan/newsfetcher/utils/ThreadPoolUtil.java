@@ -15,7 +15,7 @@ public class ThreadPoolUtil {
 
     public static ExecutorService createAsyncTaskExecutor() {
         int corePoolSize =100;
-        int maximumPoolSize = 1000;
+        int maximumPoolSize = 2000;
         long keepAliveTime = 60L;
         int queueCapacity = 1000;
 

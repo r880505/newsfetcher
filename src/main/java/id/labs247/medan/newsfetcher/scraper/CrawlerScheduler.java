@@ -27,7 +27,7 @@ public class CrawlerScheduler {
     public CrawlerScheduler(CrawlMediaRepository crawlMediaDAO, NewsScraper newsScraper) {
         this.crawlMediaDAO = crawlMediaDAO;
         this.newsScraper = newsScraper;
-        this.scheduler = Executors.newScheduledThreadPool(1000);
+        this.scheduler = Executors.newScheduledThreadPool(2000);
         this.asyncTaskExecutor = ThreadPoolUtil.createAsyncTaskExecutor();
     }
 
@@ -70,6 +70,9 @@ public class CrawlerScheduler {
     public void runCrawlingTask(CrawlMedia crawlMedia) {
         asyncTaskExecutor.submit(() -> {
             try {
+                // Log when crawling task running
+                logger.info("[INFO] Thread pool is running a task for domain: {}", crawlMedia.getOriginalDomain());
+                
                 // Schedule index page parsing immediately
                 LocalDateTime localDateTime = LocalDateTime.now();
                 String domain = crawlMedia.getOriginalDomain();
@@ -108,6 +111,9 @@ public class CrawlerScheduler {
                         e.printStackTrace();
                     }
                 }, 0, TimeUnit.MINUTES);
+
+                // Log when crawling task done
+                logger.info("[INFO] Task for domain: {} has been completed and released by thread pool", crawlMedia.getOriginalDomain());
 
             } catch (Exception e) {
                 e.printStackTrace();
