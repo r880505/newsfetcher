@@ -3,7 +3,7 @@
     <Appenders>
         <!-- Console appender for info and debug levels -->
         <Console name="Console" target="SYSTEM_OUT">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %level %logger{50} \t : %msg%n"/>
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %level %logger{50} \t : %msg%n"/>
             <Filters>
                 <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
@@ -11,7 +11,7 @@
 
         <!-- Console appender specifically for error level logs -->
         <Console name="ConsoleError" target="SYSTEM_ERR">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %level %logger{50} \t : %msg%n%throwable{short}"/>
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %level %logger{50} \t : %msg%n%throwable{short}"/>
             <Filters>
                 <ThresholdFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>

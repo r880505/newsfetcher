@@ -661,7 +661,7 @@ public class NewsScraper {
         SolrInputDocument document = new SolrInputDocument();
         document.addField("domain", domain);
         document.addField("url", url);
-        document.addField("id", url);
+        // document.addField("id", url);
         document.addField("content", content);
         document.addField("image", image);
         document.addField("date", date);

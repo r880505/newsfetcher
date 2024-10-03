@@ -6,10 +6,15 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class ThreadPoolUtil {
 
+    private static final Logger logger = LogManager.getLogger(ThreadPoolUtil.class);
+
     public static ExecutorService createAsyncTaskExecutor() {
-        int corePoolSize = 100;
+        int corePoolSize =100;
         int maximumPoolSize = 1000;
         long keepAliveTime = 60L;
         int queueCapacity = 1000;
@@ -22,7 +27,7 @@ public class ThreadPoolUtil {
                 new LinkedBlockingQueue<>(queueCapacity),
                 Executors.defaultThreadFactory(),
                 (Runnable r, ThreadPoolExecutor e) -> {
-                    System.out.println("Task Rejected: Thread pool is full. Increase the thread pool size.");
+                    logger.info("Task Rejected: Thread pool is full. Increase the thread pool size.");
                 }
         );
 
