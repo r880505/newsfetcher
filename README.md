@@ -15,7 +15,7 @@ Note: before run this project, you must run Zookeeper, Kafka and Solr first, adj
 
 Build jar file
 ```
-mvn clean package
+mvn clean install
 ```
 Run jar file
 ```
