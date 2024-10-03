@@ -19,15 +19,15 @@ mvn clean install
 ```
 Run jar file
 ```
-java -jar -jar /path_to_jar_file/mediaonline_crawler-0.0.1-SNAPSHOT.jar
+java -jar -jar /path_to_jar_file/newsfetcher-0.0.1-SNAPSHOT.jar
 ```
 If you use kerberos for authenticate, use this command
 ```
 java \
 -DkerberosPrincipal=your_kerberos_principal \
--DkerberosKeytab=/path_to_keytab_file/your_keytab.keytab \
+-DkerberosKeytab=/path/to/keytab/file/your_keytab.keytab \
 -Djavax.security.auth.useSubjectCredsOnly=false \
--Djava.security.auth.login.config=/path_to_config_file/your_config.conf \
--jar /path_to_jar_file/mediaonline_crawler-0.0.1-SNAPSHOT.jar
+-Djava.security.auth.login.config=/path/to/config/file/your_config.conf \
+-jar /path/to/jar/file/newsfetcher-0.0.1-SNAPSHOT.jar
 
 ```
