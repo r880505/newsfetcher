@@ -14,10 +14,10 @@ public class ThreadPoolUtil {
     private static final Logger logger = LogManager.getLogger(ThreadPoolUtil.class);
 
     public static ExecutorService createAsyncTaskExecutor() {
-        int corePoolSize =100;
-        int maximumPoolSize = 2000;
+        int corePoolSize = 250;
+        int maximumPoolSize = 1000;
         long keepAliveTime = 60L;
-        int queueCapacity = 1000;
+        int queueCapacity = 500;
 
         ThreadPoolExecutor executor = new ThreadPoolExecutor(
                 corePoolSize,

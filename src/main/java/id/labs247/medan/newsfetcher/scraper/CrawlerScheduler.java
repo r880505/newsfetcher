@@ -27,7 +27,7 @@ public class CrawlerScheduler {
     public CrawlerScheduler(CrawlMediaRepository crawlMediaDAO, NewsScraper newsScraper) {
         this.crawlMediaDAO = crawlMediaDAO;
         this.newsScraper = newsScraper;
-        this.scheduler = Executors.newScheduledThreadPool(2000);
+        this.scheduler = Executors.newScheduledThreadPool(250);
         this.asyncTaskExecutor = ThreadPoolUtil.createAsyncTaskExecutor();
     }
 
