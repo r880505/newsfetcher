@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -198,6 +199,7 @@ public class NewsScraper {
 
                     // Get content of news
                     String content = getNews(url+pageParam, filterNews);
+                    content = unescapeHTMLSpecialCharacter(content);
 
                     String jsonPropOfNews = getJSONMetadataAndRemoveHTMLTag(document);
                     List<NewsArticle> newsArticles = parseNewsArticle(jsonPropOfNews);
@@ -210,6 +212,7 @@ public class NewsScraper {
                         String[] authorArray = convertAuthorToArray(author);
     
                         String title = getTitle(newsArticle);
+                        title = unescapeHTMLSpecialCharacter(title);
                         String image = parseImage(url, selectorImage);
     
                         // Clean published date
@@ -901,6 +904,10 @@ public class NewsScraper {
             return element.text();
         }
         return "";
+    }
+
+    private String unescapeHTMLSpecialCharacter(String textToUnescape) {
+        return StringEscapeUtils.unescapeHtml4(textToUnescape);
     }
 
 }
