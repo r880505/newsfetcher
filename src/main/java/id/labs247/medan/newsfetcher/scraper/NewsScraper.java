@@ -194,7 +194,7 @@ public class NewsScraper {
                 maxDepth = jsonToParse.getInt("max_depth");
     
                 if (depth <= maxDepth) {
-                    Document document = getDocument(url+pageParam);
+                    Document document = getDocument(url);
                     depth += 1;
 
                     // Get content of news
@@ -203,28 +203,38 @@ public class NewsScraper {
 
                     String jsonPropOfNews = getJSONMetadataAndRemoveHTMLTag(document);
                     List<NewsArticle> newsArticles = parseNewsArticle(jsonPropOfNews);
-    
+
+                    // Parse author, clean and convert to array
+                    String author = parseAuthor(url+pageParam, selectorAuthor);
+                    author = cleanAuthor(author);
+                    String[] authorArray = convertAuthorToArray(author);
+
+                    // Parse image
+                    String image = parseImage(url, selectorImage);
+
+                    // Parse keywords
+                    String[] keywords = parseKeywords(document);
+                    
+                    String publishedDate = "";
+                    String title = "";
+
                     for (NewsArticle newsArticle : newsArticles) {
-    
-                        // Clean author and convert to array
-                        String author = parseAuthor(url, selectorAuthor);
-                        author = cleanAuthor(author);
-                        String[] authorArray = convertAuthorToArray(author);
-    
-                        String title = getTitle(newsArticle);
+                        
+                        // Parse title and escape HTML's special characters
+                        title = getTitle(newsArticle);
                         title = unescapeHTMLSpecialCharacter(title);
-                        String image = parseImage(url, selectorImage);
-    
+                        
                         // Clean published date
-                        String publishedDate = getPublishedDate(newsArticle);
+                        publishedDate = getPublishedDate(newsArticle);
                         publishedDate = standarizeDatetime(publishedDate);
-        
-                        // Create JSON Content and send to Kafka
-                        JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, publishedDate, title, authorArray);
-                        if (content.length() != 0) {
-                            logger.info(String.format("[DEBUG] %s | Sending news article to Kafka | %s", newsPortal, url));
-                            kafkaService.sendToKafka(jsonNews.toString(), topicNews);
-                        }
+
+                    }
+
+                    // Create JSON Content and send to Kafka
+                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, publishedDate, title, authorArray, keywords);
+                    if (content.length() != 0) {
+                        logger.info(String.format("[DEBUG] %s | Sending news article to Kafka | %s", newsPortal, url));
+                        kafkaService.sendToKafka(jsonNews.toString(), topicNews);
                     }
 
                     // Get baca juga Url and then send to Kafka
@@ -661,6 +671,15 @@ public class NewsScraper {
             }
         }
 
+        JSONArray keywodsArray = jsonToParse.optJSONArray("keywords");
+        String[] keywords = null;
+        if (keywodsArray != null) {
+            keywords = new String[keywodsArray.length()];
+            for (int i = 0; i < keywodsArray.length(); i++) {
+                keywords[i] = keywodsArray.optString(i);
+            }
+        }
+
         SolrInputDocument document = new SolrInputDocument();
         document.addField("domain", domain);
         document.addField("url", url);
@@ -675,6 +694,13 @@ public class NewsScraper {
         if (author != null) {
             for (String authorName : author) {
                 document.addField("author", authorName);
+            }
+        }
+
+        // Add keywords as array
+        if (keywords != null) {
+            for (String keyword : keywords) {
+                document.addField("keywords", keyword);
             }
         }
 
@@ -714,16 +740,13 @@ public class NewsScraper {
 
     private String standarizeDatetime(String date) {
 
-        // Lowercase date
-        date = date.toLowerCase();
-
         // Handle WIB, WITA, WIT timezones
-        if (date.contains("wib")) {
-            date = date.replace("wib", " ");
-        } else if (date.contains("wita")) {
-            date = date.replace("wita", " ");
-        } else if (date.contains("wit")) {
-            date = date.replace("wit", " ");
+        if (date.contains("WIB")) {
+            date = date.replace("WIB", " ");
+        } else if (date.contains("WITA")) {
+            date = date.replace("WITA", " ");
+        } else if (date.contains("WIT")) {
+            date = date.replace("WIT", " ");
         }
 
         date = date.replace(" ", "T");
@@ -762,7 +785,7 @@ public class NewsScraper {
     
     // Create JSON for Kafka Content
     private JSONObject createJsonKafkaContent(String url, String domain, String content, String imageSource,
-            String publishedDate, String title, String[] author) {
+            String publishedDate, String title, String[] author, String[] keywords) {
         JSONObject json = new JSONObject();
         json.put("url", url);
         json.put("domain", domain);
@@ -773,6 +796,7 @@ public class NewsScraper {
         json.put("publishedDate", publishedDate);
         json.put("title", title);
         json.put("author", new JSONArray(author));
+        json.put("keywords", new JSONArray(keywords));
         return json;
     }
 
@@ -908,6 +932,24 @@ public class NewsScraper {
 
     private String unescapeHTMLSpecialCharacter(String textToUnescape) {
         return StringEscapeUtils.unescapeHtml4(textToUnescape);
+    }
+
+    private String[] parseKeywords(Document document) {
+        // Select the meta tag with name="keywords"
+        Element keywordsMetaTag = document.selectFirst("meta[name=keywords]");
+    
+        // Check if the meta tag and its content are not null or empty
+        if (keywordsMetaTag != null) {
+            String keywordsContent = keywordsMetaTag.attr("content");
+    
+            if (keywordsContent != null && !keywordsContent.trim().isEmpty()) {
+                // Split by comma, trim each keyword, and filter out any empty keywords
+                return keywordsContent.split(",\\s*");
+            }
+        }
+    
+        // Return an empty array if no valid keywords found
+        return new String[]{};
     }
 
 }
