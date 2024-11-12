@@ -45,7 +45,7 @@ public class CrawlerScheduler {
     }
 
     public void scheduleTasks() throws IOException {
-        allCrawlMedia = crawlMediaDAO.getAllActivePortal();
+        allCrawlMedia = crawlMediaDAO.getAllActiveNewsPortal();
         for (CrawlMedia crawlMedia : allCrawlMedia) {
             int scheduleMinute = crawlMedia.getScheduleMinutes();
             long initialDelay = getInitialDelay(scheduleMinute);
@@ -69,10 +69,7 @@ public class CrawlerScheduler {
 
     public void runCrawlingTask(CrawlMedia crawlMedia) {
         asyncTaskExecutor.submit(() -> {
-            try {
-                // Log when crawling task running
-                logger.info("[INFO] Thread pool is running a task for domain: {}", crawlMedia.getOriginalDomain());
-                
+            try {                
                 // Schedule index page parsing immediately
                 LocalDateTime localDateTime = LocalDateTime.now();
                 String domain = crawlMedia.getOriginalDomain();
@@ -84,7 +81,7 @@ public class CrawlerScheduler {
                 // Schedule index page parsing immediately
                 int page = crawlMedia.getIndexPageCount();
                 newsScraper.executeParseIndexPage(domain, dateToParse, topicUrl, page);
-                logger.info("[DEBUG] | Completed scraping index page for domain: " + crawlMedia.getOriginalDomain());
+                logger.info("[DEBUG] Completed scraping index page for domain: " + crawlMedia.getOriginalDomain());
 
                 crawlMedia.setLastScheduled(localDateTime);
                 crawlMediaDAO.update(crawlMedia);
@@ -93,15 +90,15 @@ public class CrawlerScheduler {
                 scheduler.schedule(() -> {
                     try {
                         newsScraper.executeParseNews(domain, topicUrl, topicNews, topicRelatedNewsUrl);
-                        newsScraper.insertToSolr(topicNews);
-                        logger.info("[DEBUG] | Completed scraping news for domain: " + crawlMedia.getOriginalDomain());
+                        newsScraper.insertNewsToSolr(topicNews);
+                        logger.info("[DEBUG] Completed scraping news for domain: " + crawlMedia.getOriginalDomain());
 
                         // Schedule parsing related news immediately after news parsing
                         scheduler.schedule(() -> {
                             try {
                                 newsScraper.executeParseRelatedNews(domain, topicUrl, topicNews, topicRelatedNewsUrl);
-                                newsScraper.insertToSolr(topicNews);
-                                logger.info("[DEBUG] | Completed scraping related news for domain: " + crawlMedia.getOriginalDomain());
+                                newsScraper.insertNewsToSolr(topicNews);
+                                logger.info("[DEBUG] Completed scraping related news for domain: " + crawlMedia.getOriginalDomain());
                             } catch (Exception e) {
                                 e.printStackTrace();
                             }
@@ -111,9 +108,6 @@ public class CrawlerScheduler {
                         e.printStackTrace();
                     }
                 }, 0, TimeUnit.MINUTES);
-
-                // Log when crawling task done
-                logger.info("[INFO] Task for domain: {} has been completed and released by thread pool", crawlMedia.getOriginalDomain());
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -125,7 +119,7 @@ public class CrawlerScheduler {
         long initialDelay = getInitialDelay(50);  // Calculate the delay for 50th minute
         scheduler.scheduleAtFixedRate(() -> {
             try {
-                allCrawlMedia = crawlMediaDAO.getAllActivePortal();  // Fetch active portals
+                allCrawlMedia = crawlMediaDAO.getAllActiveNewsPortal();  // Fetch active portals
                 for (CrawlMedia crawlMedia : allCrawlMedia) {
                     // Check if lastScheduled is the default value
                     if (crawlMedia.getLastScheduled() != null && crawlMedia.getLastScheduled().equals(LocalDateTime.of(2024, 1, 1, 10, 0))) {
@@ -134,7 +128,7 @@ public class CrawlerScheduler {
                 }
                 logger.info("[INFO] Updated CrawlMedia list at {}", LocalDateTime.now());
             } catch (IOException e) {
-                logger.error("Failed to fetch the crawl media data: " + e.getMessage(), e);  // Enhanced error logging
+                logger.error("[ERROR] Failed to fetch the crawl media data: " + e.getMessage(), e);  // Enhanced error logging
                 e.printStackTrace();
             }
         }, initialDelay, TimeUnit.HOURS.toMinutes(1), TimeUnit.MINUTES);  // Execute every 1 hour

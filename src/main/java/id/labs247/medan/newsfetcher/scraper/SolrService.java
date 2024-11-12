@@ -37,10 +37,10 @@ public class SolrService {
     public void init() throws IOException {
         logger.info("Initializing Solr Client");
         this.solrClient = getSolrClient();
-        this.checkConnectin(solrClient);
+        this.checkConnection(solrClient);
     }
 
-    private void checkConnectin(SolrClient solr) {
+    private void checkConnection(SolrClient solr) {
         try {
             // Ping the Solr server
             SolrPingResponse pingResponse = solr.ping();
@@ -75,7 +75,8 @@ public class SolrService {
         return SolrConfig.getSolrCollection();
     }
 
-    public Future<Boolean> sendToSolr(SolrInputDocument document) {
+    // Insert to Solr as single data
+    public Future<Boolean> sendToSolr(SolrInputDocument solrDocument) {
         return executorService.submit(new Callable<Boolean>() {
             @Override
             public Boolean call() throws Exception {
@@ -88,12 +89,41 @@ public class SolrService {
                     } 
                     
                     // Add the document to Solr
-                    solr.add(document);
+                    solr.add(solrDocument);
             
                     // Commit the changes
                     solr.commit();
             
-                    logger.info("[DEBUG] Solr | Successfully inserted to Solr");
+                    logger.info("[DEBUG] Solr | Successfully inserted to Solr as single entry");
+                    return true;
+                } catch (IOException | SolrServerException e) {
+                    logger.error("[ERROR] Solr | Failed to insert to Solr | " + e.getMessage(), e);
+                    throw e;
+                }
+            }
+        });
+    }
+
+    // Insert to Solr as list
+    public Future<Boolean> sendToSolr(List<SolrInputDocument> solrDocuments) {
+        return executorService.submit(new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+                try {
+                    // Initailize solr client
+                    SolrClient solr = solrClient;
+                    
+                    if(solrClient==null) {
+                        solr = getSolrClient();
+                    } 
+                    
+                    // Add the document to Solr
+                    solr.add(solrDocuments);
+            
+                    // Commit the changes
+                    solr.commit();
+            
+                    logger.info("[DEBUG] Solr | Successfully inserted to Solr as list");
                     return true;
                 } catch (IOException | SolrServerException e) {
                     logger.error("[ERROR] Solr | Failed to insert to Solr | " + e.getMessage(), e);

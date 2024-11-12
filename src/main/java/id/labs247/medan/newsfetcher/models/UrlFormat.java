@@ -9,6 +9,7 @@ public class UrlFormat {
     private String format;
     private int multiplier;
     private int substractor;
-    private Long mediaOnlineSchedulerId;
+    private Long mediaId;
+
 }
 

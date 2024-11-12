@@ -3,14 +3,14 @@ package id.labs247.medan.newsfetcher.scraper;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 
 import org.apache.commons.text.StringEscapeUtils;
@@ -31,11 +31,9 @@ import org.jsoup.select.Elements;
 import id.labs247.medan.newsfetcher.configs.ConfigurationLoader;
 import id.labs247.medan.newsfetcher.models.CrawlMedia;
 import id.labs247.medan.newsfetcher.models.NewsArticle;
-import id.labs247.medan.newsfetcher.repositories.ContentFilterRepository;
+import id.labs247.medan.newsfetcher.repositories.FilterRepository;
 import id.labs247.medan.newsfetcher.repositories.CrawlMediaRepository;
-import id.labs247.medan.newsfetcher.repositories.DateFormatRepository;
-import id.labs247.medan.newsfetcher.repositories.UrlFilterRepository;
-import id.labs247.medan.newsfetcher.repositories.UrlFormatRepository;
+import id.labs247.medan.newsfetcher.repositories.FormatRepository;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -46,6 +44,8 @@ public class NewsScraper {
 
     private final String userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+    private final String userAgentClientHints = "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"";
+
     private static final Logger logger = LogManager.getLogger(NewsScraper.class);
 
     private SolrService solrService = new SolrService();
@@ -54,47 +54,57 @@ public class NewsScraper {
 
     private CrawlMediaRepository crawlMediaRepository = new CrawlMediaRepository();
 
-    private ContentFilterRepository contentFilterRepository = new ContentFilterRepository();
+    private FilterRepository filterRepository = new FilterRepository();
 
-    private UrlFilterRepository urlFilterRepository = new UrlFilterRepository();
-
-    private UrlFormatRepository urlFormatRepository = new UrlFormatRepository();
-
-    private DateFormatRepository dateFormatRepository = new DateFormatRepository();
+    private FormatRepository formatRepository = new FormatRepository();
 
     private String urlCheckerApi = ConfigurationLoader.getUrlCheckerApi();
+
+    private static final List<DateTimeFormatter> formatters = Arrays.asList(
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"),     
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),  
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ"),        
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),        
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),            
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),           
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss'Z'")      
+    );
+
+    private static int[] sleepDurations = {5000, 10000, 15000, 20000, 25000, 30000}; // Sleep durations in milliseconds
 
     /* ============================================================  Scraper ============================================================*/
 
     public void parseIndexPage(String domain, String dateToParse, String topicUrl, int page) throws Exception, IOException {
 
-        String newsPortal = getNewsPortal(domain);
+        String newsPortal = getNameOfNewsPortal(domain);
 
         try {
             // Get metadata from DB
-            CrawlMedia crawlMedia = crawlMediaRepository.getByDomain(domain);
+            CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain(domain);
             String articleSelector = crawlMedia.getContentSelect();
             String linkSelector = crawlMedia.getUrlSelect();
             Integer maxDepth = crawlMedia.getMaxDepth();
-            // String baseUrl = crawlMedia.getLandingUrl();
-            Long mediaId = crawlMedia.getMediaOnlineSchedulerId();
+            Long mediaId = crawlMedia.getMediaId();
 
             // Get date
-            String datePattern = dateFormatRepository.getDateFormatById(crawlMedia.getDateFormatId());
+            String datePattern = formatRepository.getDateFormatById(crawlMedia.getDateFormatId());
             String date = dateFormatter(dateToParse, "yyyy-MM-dd", datePattern);
 
             int depth = 0;
 
             // Get url format
-            String urlFormat = urlFormatRepository.getByMediaId(mediaId).getFormat();
-            int pageMultiplier = urlFormatRepository.getByMediaId(mediaId).getMultiplier();
-            int pageSubstractor = urlFormatRepository.getByMediaId(mediaId).getSubstractor();
+            String urlFormat = formatRepository.getUrlFormatByMediaId(mediaId).getFormat();
+            int pageMultiplier = formatRepository.getUrlFormatByMediaId(mediaId).getMultiplier();
+            int pageSubstractor = formatRepository.getUrlFormatByMediaId(mediaId).getSubstractor();
 
             // Get filter url
-            List<String> urlFilters = urlFilterRepository.getAllUrlFilter();
+            List<String> urlFilters = filterRepository.getAllUrlFilter();
 
             logger.info(String.format("[DEBUG] %s | Parsing Index Page", newsPortal));
-            kafkaService.subscribeFromKafka(topicUrl);
+            kafkaService.consumeFromKafka(topicUrl);
+
+            List<String> urlMessagesToKafka = new ArrayList<>();
 
             for (int i = 1; i <= page; i++) {
                 // Get url pattern
@@ -110,14 +120,18 @@ public class NewsScraper {
                         }
                         JSONObject jsonUrl = createJsonKafkaUrl(link, url, domain, domain, depth, linkSelector, articleSelector);
                         if (depth <= maxDepth && isValidLink(link, urlFilters) && !link.contains("#") && link.contains(domain)) {
-                            logger.info(String.format("[DEBUG] %s | Sending news URL to Kafka | %s", newsPortal, link));
-                            kafkaService.sendToKafka(jsonUrl.toString(), topicUrl);
+                            urlMessagesToKafka.add(jsonUrl.toString());
                         }
                     }
                 } catch (IOException e) {
                     continue;
                 }
             }
+
+            logger.info(String.format("[DEBUG] %s | Sending news URL data to Kafka", newsPortal));
+            kafkaService.sendBulkToKafka(urlMessagesToKafka, topicUrl);
+            logger.info(String.format("[DEBUG] %s | Successfully sent news URL data to Kafka", newsPortal));
+
 
         } catch (Exception e) {
             logger.error(String.format("[ERROR] %s | Failed to scrape Index Page | %s", newsPortal, e.getMessage()), e);
@@ -126,37 +140,35 @@ public class NewsScraper {
 
     public void parseNews(String domain, boolean isRelatedNews, String topicUrl, String topicNews, String topicRelatedNewsUrl) throws IOException, Exception {
         // Get crawler metadata from db by domain
-        CrawlMedia crawlMedia = crawlMediaRepository.getByDomain(domain);
+        CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain(domain);
 
         // Get content, baca juga, image and author selector
-        String selectorContent = crawlMedia.getContentSelect();
+        List<String> selectorContentList = Arrays.asList(crawlMedia.getContentSelect().split(","));
         String selectorBacaJuga = crawlMedia.getBacajugaSelect();
         String selectorImage = crawlMedia.getImageSelect();
-        String selectorAuthor = crawlMedia.getAuthorSelect();
         String pageParam = crawlMedia.getPageParam();
 
         // Get filter content 
-        List<String> filterContent = contentFilterRepository.getAllContentFilter();
-        String filterNews = parseFilterSelector(filterContent, selectorContent);
+        List<String> filterContent = filterRepository.getAllContentFilter();
 
         // Get filter url
-        List<String> urlFilters = urlFilterRepository.getAllUrlFilter();
+        List<String> urlFilters = filterRepository.getAllUrlFilter();
     
-        String newsPortal = getNewsPortal(domain);
+        String newsPortal = getNameOfNewsPortal(domain);
         logger.info(String.format("[DEBUG] %s | Parsing %s", newsPortal, isRelatedNews ? "Related News" : "News"));
 
-        kafkaService.subscribeFromKafka(topicNews);
+        kafkaService.consumeFromKafka(topicNews);
 
         String topic;
         
         List<String> jsonFromKafkaList = new ArrayList<>();
         // Get list of JSON Url from Kafka (condition to scrape news or related news)
         if(isRelatedNews) {
-            jsonFromKafkaList = kafkaService.parsingKafka(kafkaService.subscribeFromKafka(topicRelatedNewsUrl));
+            jsonFromKafkaList = kafkaService.parsingKafkaResult(kafkaService.consumeFromKafka(topicRelatedNewsUrl));
             topic = topicRelatedNewsUrl;
         } else {
-            kafkaService.subscribeFromKafka(topicRelatedNewsUrl);
-            jsonFromKafkaList = kafkaService.parsingKafka(kafkaService.subscribeFromKafka(topicUrl));
+            kafkaService.consumeFromKafka(topicRelatedNewsUrl);
+            jsonFromKafkaList = kafkaService.parsingKafkaResult(kafkaService.consumeFromKafka(topicUrl));
             topic = topicUrl;
         }
 
@@ -166,7 +178,9 @@ public class NewsScraper {
         int maxDepth = 0;
 
         Random random = new Random(); // Create a Random object for randomizing sleep durations
-        int[] sleepDurations = {5000, 10000, 15000, 20000, 25000, 30000}; // Sleep durations in milliseconds
+
+        List<String> contentMessagesToKafka = new ArrayList<>();
+        List<String> bacaJugaMessagesToKafka = new ArrayList<>();
     
         // Iterate list of url to get content
         for (int i = 0; i < jsonFromKafkaList.size(); i++) {
@@ -195,50 +209,49 @@ public class NewsScraper {
     
                 if (depth <= maxDepth) {
                     Document document = getDocument(url);
+                    Document documentWithPagination = getDocument(url+pageParam);
                     depth += 1;
 
                     // Get content of news
-                    String content = getNews(url+pageParam, filterNews);
+                    // Iterate over selectorContentList until content is found
+                    String content = "";
+                    for (String selector : selectorContentList) {
+                        content = getNews(documentWithPagination, parseFilterSelector(filterContent, selector));
+                        if (!content.isEmpty()) {
+                            break; // Stop if content is found
+                        }
+                    }
+                    
                     content = unescapeHTMLSpecialCharacter(content);
 
-                    String jsonPropOfNews = getJSONMetadataAndRemoveHTMLTag(document);
-                    List<NewsArticle> newsArticles = parseNewsArticle(jsonPropOfNews);
+                    if (content.isEmpty()) {
+                        logger.warn(String.format("[WARNING] No content found for URL: %s using selectors: %s", url, selectorContentList));
+                        continue;
+                    }
 
-                    // Parse author, clean and convert to array
-                    String author = parseAuthor(url+pageParam, selectorAuthor);
-                    author = cleanAuthor(author);
-                    String[] authorArray = convertAuthorToArray(author);
+                    // Parse author
+                    List<String> author = parseAuthor(document);
 
                     // Parse image
-                    String image = parseImage(url, selectorImage);
+                    String image = parseImage(document, selectorImage);
+                    if(image.startsWith("/")) {
+                        image = "https://" + domain + image;
+                    }
 
                     // Parse keywords
                     String[] keywords = parseKeywords(document);
-                    
-                    String publishedDate = "";
-                    String title = "";
 
-                    for (NewsArticle newsArticle : newsArticles) {
-                        
-                        // Parse title and escape HTML's special characters
-                        title = getTitle(newsArticle);
-                        title = unescapeHTMLSpecialCharacter(title);
-                        
-                        // Clean published date
-                        publishedDate = getPublishedDate(newsArticle);
-                        publishedDate = standarizeDatetime(publishedDate);
-
-                    }
+                    String title = parseTitle(document);
+                    String datePublished = parseDatePublished(document);
 
                     // Create JSON Content and send to Kafka
-                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, publishedDate, title, authorArray, keywords);
-                    if (content.length() != 0) {
-                        logger.info(String.format("[DEBUG] %s | Sending news article to Kafka | %s", newsPortal, url));
-                        kafkaService.sendToKafka(jsonNews.toString(), topicNews);
+                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title, author, keywords);
+                    if (!content.isEmpty()) {
+                        contentMessagesToKafka.add(jsonNews.toString());
                     }
 
                     // Get baca juga Url and then send to Kafka
-                    List<String> bacajugaLinks = getUrl(url, selectorBacaJuga);
+                    List<String> bacajugaLinks = getUrl(document, selectorBacaJuga);
 
                     // Iterate to send to kafka
                     for (String bacajugaLink : bacajugaLinks) {
@@ -247,8 +260,7 @@ public class NewsScraper {
                         }
                         JSONObject jsonUrl = createJsonKafkaUrl(bacajugaLink, url, domain, domain, depth, crawlMedia.getUrlSelect(), crawlMedia.getContentSelect());
                         if (depth <= maxDepth && isValidLink(bacajugaLink, urlFilters) && bacajugaLink.contains(domain) && !bacajugaLink.contains("#")) {
-                            logger.info(String.format("[DEBUG] %s | Sending related news URL to Kafka | %s", newsPortal, bacajugaLink));
-                            kafkaService.sendToKafka(jsonUrl.toString(), topicRelatedNewsUrl);
+                            bacaJugaMessagesToKafka.add(jsonUrl.toString());
                         }
                     }
 
@@ -260,6 +272,13 @@ public class NewsScraper {
                 continue;
             }
         }
+
+        logger.info(String.format("[DEBUG] %s | Sending news article data to Kafka", newsPortal));
+        kafkaService.sendBulkToKafka(contentMessagesToKafka, topicNews);
+        logger.info(String.format("[DEBUG] %s | Successfully sent news article data to Kafka", newsPortal));
+        logger.info(String.format("[DEBUG] %s | Sending related news URL data to Kafka", newsPortal));
+        kafkaService.sendBulkToKafka(bacaJugaMessagesToKafka, topicRelatedNewsUrl);
+        logger.info(String.format("[DEBUG] %s | Successfully sent related news URL data to Kafka", newsPortal));
     
         if (isRelatedNews) {
             if (depth <= maxDepth && jsonFromKafkaList.size()!=0)
@@ -270,7 +289,7 @@ public class NewsScraper {
     public void parseTvonenewsIndexPage(String dateToParse, String topicUrl) throws IOException, Exception {
 
         String domain = "tvonenews.com";
-        CrawlMedia crawlMedia = crawlMediaRepository.getByDomain(domain);
+        CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain(domain);
         String baseUrl = crawlMedia.getLandingUrl();
         Integer maxDepth = crawlMedia.getMaxDepth();
         int depth = 0;
@@ -279,20 +298,23 @@ public class NewsScraper {
         String contentSelector = crawlMedia.getContentSelect();
 
         // Get filter url
-        List<String> urlFilters = urlFilterRepository.getAllUrlFilter();
+        List<String> urlFilters = filterRepository.getAllUrlFilter();
 
         String dateUrl1 = dateFormatter(dateToParse, "yyyy-MM-dd", "yyyy-MM-dd");
         String dateUrl2 = dateFormatter(dateToParse, "yyyy-MM-dd", "yyyy/MM/dd");
 
         OkHttpClient client = new OkHttpClient();
 
-        String newsPortal = getNewsPortal(domain);
+        String newsPortal = getNameOfNewsPortal(domain);
         logger.info(String.format("[DEBUG] %s | Parsing Index Page", newsPortal));
 
-        kafkaService.subscribeFromKafka(topicUrl);
+        kafkaService.consumeFromKafka(topicUrl);
 
         MediaType mediaType = MediaType.parse("application/x-www-form-urlencoded; charset=UTF-8");
         Integer page = crawlMedia.getIndexPageCount();
+
+        List<String> urlMessagesToKafka = new ArrayList<>();
+
         for (int i = 1; i <= page; i++) {
 
             RequestBody body = RequestBody.create(mediaType,
@@ -330,8 +352,7 @@ public class NewsScraper {
                     String href = linkElement.attr("href");
                     if (href.length() != 0 && depth <= maxDepth && isValidLink(href, urlFilters)) {
                         JSONObject jsonUrl = createJsonKafkaUrl(href, baseUrl + dateUrl1 + "?type=art", domain, domain, depth, urlSelector, contentSelector);
-                        logger.info(String.format("[DEBUG] %s | Sending news URL to Kafka | %s", newsPortal, href));
-                        kafkaService.sendToKafka(jsonUrl.toString(), topicUrl);
+                        urlMessagesToKafka.add(jsonUrl.toString());
                     }
                 }
             } catch (IOException e) {
@@ -340,29 +361,35 @@ public class NewsScraper {
 
         }
 
+        logger.info(String.format("[DEBUG] %s | Sending news URL data to Kafka", newsPortal));
+        kafkaService.sendBulkToKafka(urlMessagesToKafka, topicUrl);
+        logger.info(String.format("[DEBUG] %s | Successfully sent news URL data to Kafka", newsPortal));
+
     }
 
     public void parseKumparanIndexPage() throws IOException, Exception {
         try {
             String domain = "kumparan.com";
-            CrawlMedia crawlMedia = crawlMediaRepository.getByDomain(domain);
+            CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain(domain);
             Integer maxDepth = crawlMedia.getMaxDepth();
             int depth = 0;
-            String topic = getTopicUrl(domain);
+            String topicUrl = getTopicUrl(domain);
             String baseUrl = crawlMedia.getLandingUrl();
             Integer page = crawlMedia.getIndexPageCount();
 
-            String newsPortal = getNewsPortal(domain);
+            String newsPortal = getNameOfNewsPortal(domain);
 
             // Get filter url
-            List<String> urlFilters = urlFilterRepository.getAllUrlFilter();
+            List<String> urlFilters = filterRepository.getAllUrlFilter();
 
             logger.info(String.format("[DEBUG] %s | Parsing Index Page", newsPortal));
-            kafkaService.subscribeFromKafka(topic);
+            kafkaService.consumeFromKafka(topicUrl);
 
             List<String> linkList = new ArrayList<>();
 
             OkHttpClient client = new OkHttpClient();
+
+            List<String> urlMessagesToKafka = new ArrayList<>();
 
             String url = "https://graphql-v4.kumparan.com/query?deduplicate=1";
             for (int j = 1; j <= page; j++) {
@@ -412,10 +439,13 @@ public class NewsScraper {
             for (String href : linkList) {
                 JSONObject jsonUrl = createJsonKafkaUrl(href, baseUrl, domain, domain, depth, "", "");
                 if (href.length() != 0 && depth <= maxDepth && isValidLink(href, urlFilters)) {
-                    logger.info(String.format("[DEBUG] %s | Sending news URL to Kafka | %s", newsPortal, href));
-                    kafkaService.sendToKafka(jsonUrl.toString(), topic);
+                    urlMessagesToKafka.add(jsonUrl.toString());
                 }
             }
+
+            logger.info(String.format("[DEBUG] %s | Sending news URL data to Kafka", newsPortal));
+            kafkaService.sendBulkToKafka(urlMessagesToKafka, topicUrl);
+            logger.info(String.format("[DEBUG] %s | Successfully sent news URL data to Kafka", newsPortal));
 
         } catch (IOException e) {
             String newsPortal = "Kumparan.com";
@@ -443,10 +473,6 @@ public class NewsScraper {
 
     public void executeParseRelatedNews(String domain, String topicUrl, String topicNews, String topicRelatedNewsUrl) throws IOException, Exception {
         parseNews(domain, true, topicUrl, topicNews, topicRelatedNewsUrl);
-    }
-
-    public void insertToSolr(String topic) throws Exception {
-        contentToSolr(topic);
     }
 
     /* ======================================================= UTILITIES ======================================================- */
@@ -485,22 +511,19 @@ public class NewsScraper {
         return result;
     }
 
-    public List<Map<String, Object>> getNewsFromIndex(String indexPageUrl, String indexPageSelector, String newsSelector) throws IOException {
-        Elements elements = getElements(indexPageUrl, indexPageSelector);
-        List<Map<String, Object>> result = new ArrayList<>();
+    public String getNews(Document document, String selector) throws IOException {
+        Elements paragraphs = getElements(document, selector);
     
-        for(Element element : elements) {
-            Map<String, Object> entry = new HashMap<>();
-            String newsUrl = element.attr("href");
-            if (newsUrl.length()!=0) {
-                String news = getNews(newsUrl, newsSelector);
-                if (news.length()!=0) {
-                    entry.put("url", newsUrl);
-                    entry.put("news", news);
-                    result.add(entry);
-                }
+        StringBuilder content = new StringBuilder();
+        for(Element paragraph : paragraphs) {
+            if(paragraph.text().toLowerCase().length() != 0) {
+                content.append(paragraph.text().trim() + " ");
             }
         }
+    
+        // Adding space after dot if following by character (without space)
+        String result = content.toString().trim();
+    
         return result;
     }
 
@@ -509,6 +532,24 @@ public class NewsScraper {
         List<String> result = new ArrayList<>();
         try {
             Elements elements = getElements(url, selector);
+
+            for (Element element : elements) {
+                String newsUrl = element.attr("href");
+                if (newsUrl.length() != 0) {
+                    result.add(newsUrl);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("[ERROR] " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    public List<String> getUrl(Document document, String selector) {
+        List<String> result = new ArrayList<>();
+        try {
+            Elements elements = getElements(document, selector);
 
             for (Element element : elements) {
                 String newsUrl = element.attr("href");
@@ -539,14 +580,31 @@ public class NewsScraper {
         return response.parse();
     }
 
-    // Get elements
+    // Get elements by Url and selector
     public Elements getElements(String url, String selector) throws IOException {
-        return getDocument(url).select(selector);
+        if (selector != null && !selector.isEmpty()) {
+            return getDocument(url).select(selector);
+        } else {
+            // Handle the case where cssQuery is empty
+            logger.error("[ERROR] CSS query must not be empty");
+            return new Elements(); // Return empty elements to avoid breaking execution
+        }
+    }
+
+    // Get elements by document
+    public Elements getElements(Document document, String selector) throws IOException {
+        if (selector != null && !selector.isEmpty()) {
+            return document.select(selector);
+        } else {
+            // Handle the case where cssQuery is empty
+            logger.error("[ERROR] CSS query must not be empty.");
+            return new Elements(); // Return empty elements to avoid breaking execution
+        }
     }
 
     // Regex domain (for Kafka topic)
     private String regexDomain(String domain) {
-        String regex = "\\.com$|\\.id$|\\.co$|\\.co.id$";
+        String regex = "\\.(com|id|co)$|\\.[a-zA-Z]{2,}\\.id$|\\.co\\.[a-zA-Z]{2,}$";
         return domain.replaceAll(regex, "");
     }
 
@@ -576,12 +634,12 @@ public class NewsScraper {
     }
 
     // Get name of news portal
-    private String getNewsPortal(String domain) {
+    private String getNameOfNewsPortal(String domain) {
         return domain.substring(0, 1).toUpperCase() + domain.substring(1);
     }
 
     // Generate url consist of base url, date and page (if exist)
-    public String generateUrl(String baseUrl, String date, int page, int multiplier, int substractor) {
+    private String generateUrl(String baseUrl, String date, int page, int multiplier, int substractor) {
         page = (page-substractor)*multiplier;
         return baseUrl.replace("{date}", date).replace("{page}", String.valueOf(page));
     }
@@ -622,9 +680,9 @@ public class NewsScraper {
         }
     }
 
-    public void contentToSolr(String topic) throws Exception {
-        List<ConsumerRecord<String, String>> records = kafkaService.subscribeFromKafka(topic);
-        List<String> jsonContentFromKafka = kafkaService.parsingKafka(records);
+    public void insertNewsToSolr(String topic) throws Exception {
+        List<ConsumerRecord<String, String>> records = kafkaService.consumeFromKafka(topic);
+        List<String> jsonContentFromKafka = kafkaService.parsingKafkaResult(records);
 
         logger.info("[DEBUG] Received news content from kafka content {}: {}", topic, jsonContentFromKafka.size());
 
@@ -641,13 +699,16 @@ public class NewsScraper {
             }
         }
 
-        for(SolrInputDocument document :solrInputDocuments) {
-            try {
-                logger.info("[DEBUG] Solr | Inserting to Solr: " + document.get("url"));
-                solrService.sendToSolr(document);
-            } catch (Exception e) {
-                logger.error("[ERROR] Failed to process content for URL", e);
+        try {
+            if (solrInputDocuments.size() != 0) {
+                logger.info("[DEBUG] Solr | Bulk insert to Solr for topic " + topic);
+                solrService.sendToSolr(solrInputDocuments);
+                logger.info("[DEBUG] Solr | Successfully inserted to Solr for topic " + topic + " with " + solrInputDocuments.size() + " data");
+            } else {
+                logger.warn("[WARN] Solr | No data to insert to Solr for topic " + topic);
             }
+        } catch (Exception e) {
+            logger.error("[ERROR] Failed to process content to Solr", e);
         }
 
     }
@@ -657,9 +718,12 @@ public class NewsScraper {
         String url = jsonToParse.optString("url");
         String image = jsonToParse.optString("image");
         String domain = jsonToParse.optString("domain");
-        String date = jsonToParse.optString("publishedDate");
+        String date = jsonToParse.optString("datePublished");
         String title = jsonToParse.optString("title");
-        String dateId = date.substring(0, date.indexOf("T"));
+        String dateId = parseDatetimeToDateOnly(date);
+
+        // remove timezone
+        date = removeTimezone(date);
 
         // Construct author as JSONArray
         JSONArray authorArray = jsonToParse.optJSONArray("author");
@@ -687,8 +751,9 @@ public class NewsScraper {
         document.addField("content", content);
         document.addField("image", image);
         document.addField("date", date);
-        document.addField("dateid", dateId);
         document.addField("title", title);
+        document.addField("dateid", dateId);
+        
 
         // Add author as array or list to Solr document
         if (author != null) {
@@ -709,83 +774,10 @@ public class NewsScraper {
 
         return document;
     }
-
-    public String removeTimezone(String dateString) {
-        // Find the position of '+' or '-' as first sign of timezone
-        int plusIndex = dateString.lastIndexOf('+');
-        // int minusIndex = dateString.lastIndexOf('-');
-
-        // Delete timezone
-        if (plusIndex != -1) {
-            return dateString.substring(0, plusIndex);
-        } 
-        // else if (minusIndex != -1) {
-        //     return dateString.substring(0, minusIndex);
-        // } 
-        else {
-            return dateString; 
-        }
-    }
-
-    private String adjustTimezone(String date, String timezone) {
-        // Parsing string to ZonedDateTime
-        ZonedDateTime zonedDateTime = ZonedDateTime.parse(date, DateTimeFormatter.ISO_ZONED_DATE_TIME);
-
-        // Convert to another timezone
-        ZonedDateTime convertedTime = zonedDateTime.withZoneSameInstant(ZoneId.of(timezone));
-
-        // Adjust the result without timezone name
-        return convertedTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-    }
-
-    private String standarizeDatetime(String date) {
-
-        // Handle WIB, WITA, WIT timezones
-        if (date.contains("WIB")) {
-            date = date.replace("WIB", " ");
-        } else if (date.contains("WITA")) {
-            date = date.replace("WITA", " ");
-        } else if (date.contains("WIT")) {
-            date = date.replace("WIT", " ");
-        }
-
-        date = date.replace(" ", "T");
-
-        // Change timezone to UTC+7
-        if(!date.contains("+07")) {
-            date = adjustTimezone(date, "Asia/Jakarta");
-        }
-
-        // Remove timezone
-        date = removeTimezone(date);
-
-        return date;
-    }
-
-    public String cleanAuthor(String author) {
-        // Finding " - "
-        int separatorIndex = author.indexOf(" - ");
-        if (separatorIndex != -1) {
-            return author.substring(0, separatorIndex);
-        } else {
-            return author; // If " - " doesn't exist, return original string
-        }
-    }
-
-    public String[] convertAuthorToArray(String author) {
-        if (author.contains(",")) {
-            // Split author seperated by comma
-            return author.split(",\\s*");
-        } else {
-            // Return array with single element
-            return new String[] { author };
-        }
-    }
-    
     
     // Create JSON for Kafka Content
     private JSONObject createJsonKafkaContent(String url, String domain, String content, String imageSource,
-            String publishedDate, String title, String[] author, String[] keywords) {
+            String datePublished, String title, List<String> author, String[] keywords) {
         JSONObject json = new JSONObject();
         json.put("url", url);
         json.put("domain", domain);
@@ -793,7 +785,7 @@ public class NewsScraper {
         json.put("last_checked", LocalDateTime.now());
         json.put("last_checked_ts", System.currentTimeMillis());
         json.put("image", imageSource);
-        json.put("publishedDate", publishedDate);
+        json.put("datePublished", datePublished);
         json.put("title", title);
         json.put("author", new JSONArray(author));
         json.put("keywords", new JSONArray(keywords));
@@ -803,7 +795,7 @@ public class NewsScraper {
     // Create JSON Url
     private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain, int depth,
             String urlSelect, String contentSelect) throws IOException {
-        Integer maxDepth = crawlMediaRepository.getByDomain(domain).getMaxDepth();
+        Integer maxDepth = crawlMediaRepository.getNewsPortalByDomain(domain).getMaxDepth();
         JSONObject json = new JSONObject();
         json.put("url", url);
         json.put("landing_url", landingUrl);
@@ -827,21 +819,30 @@ public class NewsScraper {
         }
         return selector;
     }
-
+    
     public String getJSONMetadataAndRemoveHTMLTag(Document document) {
         String selectedScript = "";
         Elements elementsScript = document.select("script[type=application/ld+json]");
         for (Element elementScr : elementsScript) {
-            if (elementScr.toString().contains("NewsArticle") || elementScr.toString().contains("Article"))
-                selectedScript = elementScr.toString();
+            String jsonContent = elementScr.html();
+            if (jsonContent.contains("NewsArticle") || jsonContent.contains("Article") || 
+                jsonContent.contains("\"@type\":\"NewsArticle\"") || jsonContent.contains("\"@type\":\"Article\"")) {
+                selectedScript = jsonContent;
+                break;
+            }
         }
-
-        // Remove HTML tag
-        return selectedScript = selectedScript.replaceAll("(?i)<script[^>]*>", " ").replaceAll("\\s+", " ")
-                            .replace("</script>", "").trim();
+        return selectedScript.trim();
+    }
+        
+    private String sanitizeJSON(String jsonString) {
+        jsonString = jsonString.replaceAll("[\\n\\r]+", "");
+        jsonString = jsonString.replaceAll("\",\\s+\\}", "\"}");
+        jsonString = jsonString.replaceAll(",\\s+\\}", "}");
+        return jsonString;
     }
 
-    public List<NewsArticle> parseNewsArticle(String jsonString) {
+    private List<NewsArticle> parseNewsArticles(String jsonString) {
+        jsonString = sanitizeJSON(jsonString);
         Object json = new JSONTokener(jsonString).nextValue();
         List<NewsArticle> newsArticles = new ArrayList<>();
     
@@ -875,15 +876,42 @@ public class NewsScraper {
         if (jsonObject.has("@type") && ("NewsArticle".equals(jsonObject.getString("@type"))  || "Article".equals(jsonObject.getString("@type"))) ) {
             newsArticle.setTitle(jsonObject.optString("headline"));
 
-            // Check for "publishedDate" first, if not found, use "datePublished"
-            if (jsonObject.has("publishedDate")) {
-                newsArticle.setPublishedDate(jsonObject.optString("publishedDate"));
-            } else {
-                newsArticle.setPublishedDate(jsonObject.optString("datePublished"));
+            // Check for "datePublished" first, if not found, use "publishedDate"
+            String datePublished = jsonObject.has("datePublished") ? jsonObject.optString("datePublished") : jsonObject.optString("publishedDate");
+            if(matchFormatter(datePublished)==false) {
+                datePublished = jsonObject.optString("dateModified");
+            }   
+            newsArticle.setDatePublished(datePublished);
+
+            // Check for author information in both "author" and "authors"
+            if (jsonObject.has("author")) {
+                newsArticle.setAuthor(parseAuthorFromJSON(jsonObject.get("author")));
+            } else if (jsonObject.has("authors")) {
+                newsArticle.setAuthor(parseAuthorFromJSON(jsonObject.get("authors")));
             }
+
             return newsArticle;
         }
         return null;
+    }
+
+    private boolean matchFormatter(String dateString) {
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                // Try parsing as OffsetDateTime
+                OffsetDateTime.parse(dateString, formatter);
+                return true;
+            } catch (DateTimeParseException e) {
+                // Try parsing as LocalDateTime if OffsetDateTime fails
+                try {
+                    LocalDateTime.parse(dateString, formatter);
+                    return true;
+                } catch (DateTimeParseException ignored) {
+                    // Continue to next formatter if parsing fails
+                }
+            }
+        }
+        return false; // Return false if no formatter matched
     }
 
     private List<NewsArticle> parseJSONArray(JSONArray jsonArray) {
@@ -900,16 +928,89 @@ public class NewsScraper {
         return newsArticles;
     }
 
-    public String getTitle(NewsArticle newsArticle) {
-        return newsArticle.getTitle();
+    private List<NewsArticle> getNewsArticles(Document document) {
+        String jsonPropOfNews = getJSONMetadataAndRemoveHTMLTag(document);
+        return parseNewsArticles(jsonPropOfNews);
     }
 
-    public String getPublishedDate(NewsArticle newsArticle) {
-        return newsArticle.getPublishedDate();
+    private String parseTitle(Document document) {
+        List<NewsArticle> newsArticles = getNewsArticles(document);
+        String title = "";
+        for (NewsArticle newsArticle : newsArticles) {
+            // Parse title and escape HTML's special characters
+            title = unescapeHTMLSpecialCharacter(newsArticle.getTitle());
+        }
+        return title;
     }
 
+    private List<String> parseAuthor(Document document) {
+        List<NewsArticle> newsArticles = getNewsArticles(document);
+        List<String> author = new ArrayList<>();
+        for (NewsArticle newsArticle : newsArticles) {
+            author = newsArticle.getAuthor();
+        }
+        return author;
+    }
+
+    private String parseDatePublished(Document document) {
+        List<NewsArticle> newsArticles = getNewsArticles(document);
+        String datePublished = "";
+        for (NewsArticle newsArticle : newsArticles) { 
+            datePublished = standarizeDatetime(newsArticle.getDatePublished(), "Asia/Jakarta");
+        }
+        return datePublished;
+    }
+
+    private List<String> parseAuthorFromJSON(Object authorObject) {
+        List<String> authors = new ArrayList<>();
+    
+        if (authorObject instanceof JSONObject) {
+            JSONObject author = (JSONObject) authorObject;
+    
+            // Check for single author name
+            if (author.has("name")) {
+                authors.add(author.optString("name", ""));
+            }
+            
+            // Check for comma-separated names in "names"
+            if (author.has("names")) {
+                String names = author.optString("names", "");
+                String[] namesArray = names.split(",\\s*");  // Split by comma and optional spaces
+                for (String name : namesArray) {
+                    authors.add(name.trim());
+                }
+            }
+        } else if (authorObject instanceof JSONArray) {
+            JSONArray authorArray = (JSONArray) authorObject;
+            for (int i = 0; i < authorArray.length(); i++) {
+                JSONObject author = authorArray.optJSONObject(i);
+                if (author != null && author.has("name")) {
+                    authors.add(author.optString("name", ""));
+                }
+            }
+        } else if (authorObject instanceof String) {
+            authors.add((String) authorObject);
+        }
+    
+        return authors;
+    }
+    
     public String parseImage(String url, String selector) throws IOException {
         Element element = getElements(url, selector).first();
+        if (element != null) {
+            String[] attributes = {"data-src", "src"};
+            for (String attribute : attributes) {
+                String attrValue = element.attr(attribute);
+                if (!attrValue.isEmpty()) {
+                    return attrValue;
+                }
+            }
+        }
+        return "";
+    }
+
+    private String parseImage(Document document, String selector) throws IOException {
+        Element element = getElements(document, selector).first();
         if (element != null) {
             String[] attributes = {"data-src", "src"};
             for (String attribute : attributes) {
@@ -950,6 +1051,69 @@ public class NewsScraper {
     
         // Return an empty array if no valid keywords found
         return new String[]{};
+    }
+
+
+    private String parseDatetimeToStandardFormat(String dateString, String timezone) {
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                // Try parsing as OffsetDateTime first
+                OffsetDateTime odt = OffsetDateTime.parse(dateString, formatter);
+                return odt.atZoneSameInstant(ZoneId.of(timezone)).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+            } catch (DateTimeParseException e) {
+                // If parsing as OffsetDateTime fails, try as LocalDateTime
+                try {
+                    LocalDateTime ldt = LocalDateTime.parse(dateString, formatter);
+                    return ldt.atZone(ZoneId.of(timezone)).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                } catch (DateTimeParseException ignored) {
+                    // Skip to try next formatter
+                }
+            }
+        }
+        // Return original dateString if no formatter matched
+        return dateString;
+    }
+
+    private String parseDatetimeToDateOnly(String dateString) {
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                OffsetDateTime odt = OffsetDateTime.parse(dateString, formatter);
+                return odt.toLocalDate().toString();
+            } catch (DateTimeParseException e) {
+                // Skip to try next format
+            }
+            try {
+                LocalDateTime ldt = LocalDateTime.parse(dateString, formatter);
+                return ldt.toLocalDate().toString();
+            } catch (DateTimeParseException e) {
+                // Skip to try next format
+            }
+        }
+        return dateString;
+    }
+
+    private String cleanAndParseDatetime(String dateString) {
+        // Replace 'WIB' with 'T' (if exist)
+        if(dateString.contains("WIB")) {
+            dateString = dateString.replace("WIB", "T");
+            return dateString;
+        } else {
+            return dateString;
+        }
+    }
+
+    private String standarizeDatetime(String dateString, String timezone) {
+        dateString = cleanAndParseDatetime(dateString);
+        dateString = parseDatetimeToStandardFormat(dateString, timezone);
+        return dateString;
+    }
+
+    private String removeTimezone(String dateString) {
+        // Regex pattern to remove timezone (matches `+hh:mm` or `-hh:mm` at the end of the string)
+        String pattern = "(\\+|\\-)[0-9]{2}:[0-9]{2}$";
+        
+        // Replace the timezone part with an empty string
+        return dateString.replaceAll(pattern, "");
     }
 
 }

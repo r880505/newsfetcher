@@ -81,7 +81,7 @@ public class BackdateController {
                             String topicBacaJuga = newsScraper.getTopicBacaJugaBackdate(domain);
                             newsScraper.parseIndexPage(domain, date, topicUrl, page);
                             newsScraper.parseNews(domain, false, topicUrl, topicNews, topicBacaJuga);
-                            newsScraper.insertToSolr(topicNews);
+                            newsScraper.insertNewsToSolr(topicNews);
                         } catch (Exception e) {
                             e.printStackTrace();
                         }

@@ -6,7 +6,7 @@ import lombok.Data;
 @Data
 public class CrawlMedia {
 
-    private Long mediaOnlineSchedulerId;
+    private Long mediaId;
     private String originalDomain;
     private String landingUrl;
     private LocalDateTime lastScheduled;
@@ -20,9 +20,11 @@ public class CrawlMedia {
     private Integer maxDepth;
     private String bacajugaSelect;
     private String imageSelect;
-    private String authorSelect;
     private Long dateFormatId;
     private String pageParam;
     private Integer indexPageCount;
+    private String extra;
+    private Integer extraStatus;
+
 
 }

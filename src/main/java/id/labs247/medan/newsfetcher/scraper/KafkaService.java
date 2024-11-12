@@ -14,6 +14,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
@@ -48,8 +49,9 @@ public class KafkaService {
         return SolrConfig.getSolrIsSecure();
     }
 
-    public void sendToKafka(String object, String topic) throws Exception {
+    public void sendToKafka(String message, String topic) throws Exception {
 
+        // Configure Kafka
         String kafkaServer = this.getKafkaServer();
         isSecure = getIsSecure();
 
@@ -69,16 +71,66 @@ public class KafkaService {
             properties.put("sasl.kerberos.service.name", kafkaServiceName);
         }
 
+        // Instantiate Kafka Producer
         try (KafkaProducer<String, String> kafkaProducer = new KafkaProducer<>(properties)) {
-            kafkaProducer.send(new ProducerRecord<>(topic, object)).get(); // Wait for send to complete
-            logger.info("[DEBUG] Kafka | Successfully sent to Kafka | " + getUrl(object));
+            kafkaProducer.send(new ProducerRecord<>(topic, message), (metadata, exception) -> {
+                if (exception != null) {
+                    logger.error("[ERROR] Kafka | Failed send to Kafka | " + exception.getMessage(), exception);
+                } else {
+                    logger.info("[DEBUG] Kafka | Successfully sent to Kafka | " + getUrl(message));
+                }
+            });
         } catch (Exception e) {
-            logger.error("[ERROR] Kafka | Failed send to Kafka | " + e.getMessage(), e);
+            logger.error("[ERROR] Kafka | Failed to produce message to Kafka | " + e.getMessage(), e);
             throw e;
         }
     }
 
-    public List<ConsumerRecord<String, String>> subscribeFromKafka(String topic) throws Exception {
+    public void sendBulkToKafka(List<String> messages, String topic) throws Exception {
+
+        // Configure Kafka
+        String kafkaServer = this.getKafkaServer();
+        boolean isSecure = getIsSecure();
+
+        Properties properties = new Properties();
+        properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaServer);
+        properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
+        properties.put(ProducerConfig.RETRIES_CONFIG, 3);
+        properties.put("acks", "all");
+        properties.put("batch.size", 16384); // 16KB batch size
+        properties.put("linger.ms", 1);
+        properties.put("buffer.memory", 33554432); // 32MB buffer
+
+        if (isSecure) {
+            properties.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT");
+            properties.put(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, kafkaServiceName);
+        }
+
+        // Instantiate Kafka Producer
+        try (KafkaProducer<String, String> kafkaProducer = new KafkaProducer<>(properties)) {
+
+            for (String message : messages) {
+                kafkaProducer.send(new ProducerRecord<>(topic, message), (metadata, exception) -> {
+                    if (exception != null) {
+                        logger.error("[ERROR] Kafka | Failed to send message | " + exception.getMessage(), exception);
+                    } else {
+                        logger.info("[DEBUG] Kafka | Successfully sent to topic {} | Partition: {} | Offset: {}", 
+                                    metadata.topic(), metadata.partition(), metadata.offset());
+                    }
+                });
+            }
+
+            kafkaProducer.flush(); // Ensure all messages in batch was sent
+
+        } catch (Exception e) {
+            logger.error("[ERROR] Kafka | Failed to produce messages in bulk | " + e.getMessage(), e);
+            throw e;
+        }
+    }
+
+    public List<ConsumerRecord<String, String>> consumeFromKafka(String topic) throws Exception {
 
         String kafkaServer = this.getKafkaServer();
         String groupId = getGroupId();
@@ -121,7 +173,7 @@ public class KafkaService {
         return buffer;
     }
     
-    public List<String> parsingKafka(List<ConsumerRecord<String, String>> records) {
+    public List<String> parsingKafkaResult(List<ConsumerRecord<String, String>> records) {
         List<String> result = new ArrayList<>();
 
         for(ConsumerRecord<String, String> value : records) {
@@ -136,7 +188,7 @@ public class KafkaService {
     }
 
     public String getUrl(String json) {
-        return (new JSONObject(json)).getString("url");
+        return (new JSONObject(json)).optString("url");
     }
 
 }

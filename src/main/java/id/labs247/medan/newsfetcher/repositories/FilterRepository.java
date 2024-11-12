@@ -10,7 +10,7 @@ import java.util.List;
 
 import id.labs247.medan.newsfetcher.configs.DatabaseConfig;
 
-public class ContentFilterRepository {
+public class FilterRepository {
 
     public Connection getConnection() throws SQLException, IOException {
         return DatabaseConfig.getDbConnection();
@@ -20,6 +20,22 @@ public class ContentFilterRepository {
         List<String> filters = new ArrayList<>();
         try (Connection connection = this.getConnection();
              PreparedStatement statement = connection.prepareStatement("SELECT LOWER(filter) AS filter FROM content_filter");
+             ResultSet resultSet = statement.executeQuery()) {
+            
+            while (resultSet.next()) {
+                String filter = resultSet.getString("filter");
+                filters.add(filter);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return filters;
+    }
+
+    public List<String> getAllUrlFilter() throws IOException {
+        List<String> filters = new ArrayList<>();
+        try (Connection connection = this.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT filter FROM url_filter ");
              ResultSet resultSet = statement.executeQuery()) {
             
             while (resultSet.next()) {
