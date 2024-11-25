@@ -33,6 +33,8 @@ public class BackdateController {
 
     private void setupRoutes() {
 
+
+        // Get list of news portal that can be parse old news by date
         get(baseUrl+"/newsportal", (req, res) -> {
             res.type("application/json");
             try {
@@ -46,6 +48,7 @@ public class BackdateController {
             
         });
 
+        // Parse news portal by old date
         post(baseUrl+"/backdatenews", (req, res) -> {
             res.type("application/json");
             
@@ -111,62 +114,6 @@ public class BackdateController {
                 // Handle exception and return error response
                 res.status(500);
                 return Response(500, "Failed scrape backdate", null);
-            }
-        });
-
-        get(baseUrl + "/news", (req, res) -> {
-            res.type("application/json");
-        
-            try {
-                // Parse the request body (JSON) into a JSONObject
-                JSONObject requestBody = new JSONObject(req.body());
-        
-                // Extract required fields from the request
-                String baseUrl = requestBody.getString("indexUrl");
-                String selectorUrl = requestBody.getString("selectorUrl");
-                String selectorContent = requestBody.getString("selectorContent");
-                String selectorAuthor = requestBody.getString("selectorAuthor"); // typo in selector
-                String selectorImage = requestBody.getString("selectorImage");
-                String selectorBacajuga = requestBody.getString("selectorBacajuga");
-        
-                // Fetch URLs from the base URL using the provided selector
-                List<String> urls = newsScraper.getUrl(baseUrl, selectorUrl);
-                List<Map<String, Object>> result = new ArrayList<>();
-        
-                // Iterate through each URL and fetch content, author, image, etc.
-                for (String url : urls) {
-                    Map<String, Object> news = new HashMap<>();
-
-                    String content = newsScraper.getNews(url, selectorContent);
-                    String image = newsScraper.parseImage(url, selectorImage);
-                    String author = newsScraper.parseAuthor(url, selectorAuthor); // fixed typo
-                    List<String> bacaJugaList = newsScraper.getUrl(url, selectorBacajuga);
-
-                    logger.info("url: " + url);
-                    logger.info("content: " + content);
-                    logger.info("author: " + author);
-                    logger.info("image: " + image);
-                    logger.info("baca juga: " + bacaJugaList);
-        
-                    // Store the scraped information into the news map
-                    news.put("url", url);
-                    news.put("content", content);
-                    news.put("author", author);
-                    news.put("image", image);
-                    news.put("bacaJugaUrls", bacaJugaList);
-        
-                    // Add the map to the result list
-                    result.add(news);
-                }
-        
-                // Use the Response method to send the result back as a JSON response
-                res.status(200);
-                return Response(200, "News fetched successfully", result).toString();
-        
-            } catch (Exception e) {
-                // Handle exceptions and send an error response using the Response method
-                res.status(500);
-                return Response(500, e.getMessage(), null).toString();
             }
         });
 

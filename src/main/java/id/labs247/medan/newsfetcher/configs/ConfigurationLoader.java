@@ -8,6 +8,7 @@ public class ConfigurationLoader {
     
     private static CompositeConfiguration configuration = new CompositeConfiguration();
 
+    // Load configuration from 'application.properties'
     static {
         try {
             // Load properties

@@ -188,6 +188,21 @@ public class CrawlMediaRepository {
         }
     }
 
+    public void updateLastScheduled(CrawlMedia crawlMedia) throws IOException {
+        String sql = "UPDATE crawl_media SET last_scheduled = ? WHERE media_id = ?";
+        try (Connection connection = this.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
+    
+            preparedStatement.setString(1, crawlMedia.getLastScheduled() != null ? 
+                                         crawlMedia.getLastScheduled().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
+            preparedStatement.setLong(2, crawlMedia.getMediaId());
+    
+            preparedStatement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
     public List<String> getBackdateNewsPortal() throws IOException {
         List<String> domains = new ArrayList<>();
         String sql = "SELECT cm.original_domain "

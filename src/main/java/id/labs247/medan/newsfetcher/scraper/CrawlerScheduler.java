@@ -84,7 +84,7 @@ public class CrawlerScheduler {
                 logger.info("[DEBUG] Completed scraping index page for domain: " + crawlMedia.getOriginalDomain());
 
                 crawlMedia.setLastScheduled(localDateTime);
-                crawlMediaDAO.update(crawlMedia);
+                crawlMediaDAO.updateLastScheduled(crawlMedia);
 
                 // Schedule parsing news immediately
                 scheduler.schedule(() -> {
