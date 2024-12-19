@@ -3,13 +3,13 @@ package id.labs247.medan.newsfetcher.scraper;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -38,8 +38,8 @@ import id.labs247.medan.newsfetcher.configs.ConfigurationLoader;
 import id.labs247.medan.newsfetcher.models.CrawlMedia;
 import id.labs247.medan.newsfetcher.models.NewsArticle;
 import id.labs247.medan.newsfetcher.models.UrlFormat;
-import id.labs247.medan.newsfetcher.repositories.FilterRepository;
 import id.labs247.medan.newsfetcher.repositories.CrawlMediaRepository;
+import id.labs247.medan.newsfetcher.repositories.FilterRepository;
 import id.labs247.medan.newsfetcher.repositories.FormatRepository;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -169,6 +169,7 @@ public class NewsScraper {
         List<String> selectorContentList = Arrays.asList(crawlMedia.getContentSelect().split(","));
         String selectorBacaJuga = crawlMedia.getBacajugaSelect();
         String selectorImage = crawlMedia.getImageSelect();
+        List<String> imageSelectors = Arrays.asList(selectorImage);
 
         // Get page param for pagination, ex: ?page=all etc
         String pageParam = crawlMedia.getPageParam();
@@ -277,7 +278,7 @@ public class NewsScraper {
                     List<String> author = parseAuthor(document);
 
                     // Parse image
-                    String image = parseImage(document, selectorImage);
+                    String image = parseImage(document, imageSelectors);
                     if(image.startsWith("/")) {
                         image = "https://" + domain + image;
                     }
@@ -723,7 +724,7 @@ public class NewsScraper {
 
     private Boolean isValidLink(String link, List<String> filters) {
         for (String filter : filters) {
-            if (link.contains(filter)) {
+            if (link.matches(".*" + filter + ".*")) {
                 return false;
             }
         }
@@ -1084,7 +1085,7 @@ public class NewsScraper {
     private String parseImage(Document document, String selector) throws IOException {
         Element element = getElements(document, selector).first();
         if (element != null) {
-            String[] attributes = {"data-src", "src"};
+            String[] attributes = {"data-src", "src", "content"};
             for (String attribute : attributes) {
                 String attrValue = element.attr(attribute);
                 if (!attrValue.isEmpty()) {
@@ -1093,6 +1094,22 @@ public class NewsScraper {
             }
         }
         return "";
+    }
+
+    private String parseImage(Document document, List<String> selectors) throws IOException {
+        for (String selector : selectors) {
+            Element element = getElements(document, selector).first();
+            if (element != null) {
+                String[] attributes = {"data-src", "src", "content"};
+                for (String attribute : attributes) {
+                    String attrValue = element.attr(attribute);
+                    if (!attrValue.isEmpty()) {
+                        return attrValue; // Return if any image found
+                    }
+                }
+            }
+        }
+        return ""; // Return if not found image
     }
 
     private String unescapeHTMLSpecialCharacter(String textToUnescape) {
