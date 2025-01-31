@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -35,6 +36,7 @@ import org.jsoup.select.Elements;
 import com.jayway.jsonpath.JsonPath;
 
 import id.labs247.medan.newsfetcher.configs.ConfigurationLoader;
+import id.labs247.medan.newsfetcher.models.CrawlExtraComment;
 import id.labs247.medan.newsfetcher.models.CrawlMedia;
 import id.labs247.medan.newsfetcher.models.NewsArticle;
 import id.labs247.medan.newsfetcher.models.UrlFormat;
@@ -268,6 +270,9 @@ public class NewsScraper {
                     // Remove all HTML's special characters
                     content = unescapeHTMLSpecialCharacter(content);
 
+                    // Remove domain/domain's name and city before dash
+                    content = removeBeforeDash(content);
+
                     // Send log if content is empty
                     if (content.isEmpty()) {
                         logger.warn(String.format("[WARNING] No content found for URL: %s using selectors: %s", url, selectorContentList));
@@ -292,8 +297,29 @@ public class NewsScraper {
                     // Parse date
                     String datePublished = parseDatePublished(document);
 
+                    // Parse comments
+                    JSONArray comments = new JSONArray();
+                    if (crawlMedia.getExtraStatus()==1 && crawlMedia.getExtra().equals("c")) {
+                        CrawlExtraComment crawlExtraComment = crawlMediaRepository.getCrawlExtraCommentByMediaId(crawlMedia.getMediaId());
+                        String selectorArticleId = crawlExtraComment.getArticleIdSelect();
+                        String articleId = parseArticleId(documentWithPagination, selectorArticleId);
+                        String commentApi = crawlExtraComment.getCommentApi();
+                        String requestMethod = crawlExtraComment.getRequestMethod();
+
+                        String requestParam = crawlExtraComment.getRequestParam();
+                        requestParam = completeRequestBodyOrParam(requestMethod, requestParam);
+
+                        String requestBody = crawlExtraComment.getRequestBody();
+                        requestBody = completeRequestBodyOrParam(requestBody, articleId);
+
+                        String cookie = crawlExtraComment.getCookie();
+                        String selectorComment = crawlExtraComment.getSelectorComment();
+
+                        comments = parseComment(domain, url, commentApi, requestMethod, requestBody, requestParam, cookie, selectorComment);
+                    }
+
                     // Create JSON Content and add to array list
-                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title, author, keywords);
+                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title, author, keywords, comments);
                     if (!content.isEmpty()) {
                         contentMessagesToKafka.add(jsonNews.toString());
                     }
@@ -772,11 +798,11 @@ public class NewsScraper {
             JSONObject jsonToParse = new JSONObject(jsonContent);
             String url = jsonToParse.getString("url");
             SolrInputDocument solrInputDocument = createSolrDocument(jsonToParse);
-            if (urlCheckerHBase(url) == 3) {
+            // if (urlCheckerHBase(url) == 3) {
                 solrInputDocuments.add(solrInputDocument);
-            } else {
-                logger.info("[DEBUG] HBase | The URL is already in Solr | {}", url);
-            }
+            // } else {
+            //     logger.info("[DEBUG] HBase | The URL is already in Solr | {}", url);
+            // }
         }
 
         try {
@@ -802,6 +828,7 @@ public class NewsScraper {
         String date = jsonToParse.optString("datePublished");
         String title = jsonToParse.optString("title");
         String dateId = parseDatetimeToDateOnly(date);
+        JSONArray commentsArray = jsonToParse.optJSONArray("comments");
 
         // Construct author as array
         JSONArray authorArray = jsonToParse.optJSONArray("author");
@@ -814,25 +841,41 @@ public class NewsScraper {
         }
 
         // Construct keywords as array
-        JSONArray keywodsArray = jsonToParse.optJSONArray("keywords");
+        JSONArray keywordsArray = jsonToParse.optJSONArray("keywords");
         String[] keywords = null;
-        if (keywodsArray != null) {
-            keywords = new String[keywodsArray.length()];
-            for (int i = 0; i < keywodsArray.length(); i++) {
-                keywords[i] = keywodsArray.optString(i);
+        if (keywordsArray != null) {
+            keywords = new String[keywordsArray.length()];
+            for (int i = 0; i < keywordsArray.length(); i++) {
+                keywords[i] = keywordsArray.optString(i);
+            }
+        }
+
+        // Construct comments as JSON objects in array field
+        List<String> comments = new ArrayList<>();
+        if (commentsArray != null) {
+            for (int i = 0; i < commentsArray.length(); i++) {
+                JSONObject commentObject = commentsArray.optJSONObject(i);
+                if (commentObject != null) {
+                    comments.add(commentObject.toString());
+                }
             }
         }
 
         SolrInputDocument document = new SolrInputDocument();
         document.addField("domain", domain);
         document.addField("url", url);
-        // document.addField("id", url);
+        document.addField("id", url);
         document.addField("content", content);
         document.addField("image", image);
-        document.addField("date", date);
+        
+        // date = convertToTimezone(date, "yyyy-MM-dd'T'HH:mm:ssXXX", "UTC");
+        ZonedDateTime zdt = convertDatetimeToUTC(date);
+        String formattedDate = zdt.format(DateTimeFormatter.ISO_INSTANT); // Konversi ke format ISO-8601
+        document.addField("date", formattedDate);
+
         document.addField("title", title);
         document.addField("dateid", dateId);
-        
+
         // Add author as array or list to Solr document
         if (author != null) {
             for (String authorName : author) {
@@ -847,15 +890,25 @@ public class NewsScraper {
             }
         }
 
+        // Add comments as JSON objects in array field
+        if (!comments.isEmpty()) {
+            document.addField("comments", comments);
+        }
+
         document.addField("last_checked_ts", System.currentTimeMillis());
-        document.addField("last_checked", LocalDateTime.now().toString());
+
+        // Convert date to UTC
+        String lastChecked = convertDatetimeToUTC(LocalDateTime.now().toString() + "+07:00")
+                            .format(DateTimeFormatter.ISO_INSTANT);
+        document.addField("last_checked", lastChecked);
 
         return document;
     }
+
     
     // Create JSON for Kafka Content
     private JSONObject createJsonKafkaContent(String url, String domain, String content, String imageSource,
-            String datePublished, String title, List<String> author, String[] keywords) {
+            String datePublished, String title, List<String> author, String[] keywords, JSONArray comments) {
         JSONObject json = new JSONObject();
         json.put("url", url);
         json.put("domain", domain);
@@ -867,6 +920,7 @@ public class NewsScraper {
         json.put("title", title);
         json.put("author", new JSONArray(author));
         json.put("keywords", new JSONArray(keywords));
+        json.put("comments", comments);
         return json;
     }
 
@@ -1189,7 +1243,7 @@ public class NewsScraper {
         return dateString;
     }
 
-    private JSONObject parseComment(String domain, String url, String commentApi, String requestMethod, String requestBody, String requestParam, String cookie, String selector) {
+    private JSONArray parseComment(String domain, String url, String commentApi, String requestMethod, String requestBody, String requestParam, String cookie, String selector) {
 
         // Initiate okhttp
         OkHttpClient client = new OkHttpClient();
@@ -1255,7 +1309,9 @@ public class NewsScraper {
                 throw new IllegalArgumentException("Unsupported request method: " + requestMethod);
         }
 
-        JSONObject result = new JSONObject();
+        // Create array for result
+        JSONArray jsonArrayComment = new JSONArray();
+
 
         // Send request and het the response
         if(request!=null) {
@@ -1280,9 +1336,6 @@ public class NewsScraper {
             
                     // Extract comment by path
                     List<Map<String, Object>> commentList = JsonPath.parse(responseBody).read(jsonPath);
-            
-                    // Create array for result
-                    JSONArray jsonArrayComment = new JSONArray();
 
                     // Parse comment for facebook plugin
                     if("FB".equals(requestMethod)) {
@@ -1394,10 +1447,6 @@ public class NewsScraper {
                         }
 
                     }
-
-                    result.put("comments", jsonArrayComment);
-                    result.put("totalComments", jsonArrayComment.length());
-                    result.put("url", url);
             
                 } else {
                     logger.error("[ERROR] Request failed: " + response.code());
@@ -1410,7 +1459,7 @@ public class NewsScraper {
             logger.error("No request sent, please check each parameter, request body or header");
         }
 
-        return result;
+        return jsonArrayComment;
         
     }
 
@@ -1466,6 +1515,52 @@ public class NewsScraper {
             return null;
         }
     }
+
+    private String removeBeforeDash(String text) {
+        // Detect long dash (em dash) in text
+        String regex = "^[^\\u2014]*?[\\-–—\\u2014]+\\s*"; // include all type of dashes
+
+        // Check -, --, –, or — found in first 50 characters
+        int dashIndex = text.indexOf("-");
+        int doubleDashIndex = text.indexOf("--");
+        int enDashIndex = text.indexOf("–");
+        int emDashIndex = text.indexOf("—");
+
+        // If it found, clean all before dash
+        if ((dashIndex >= 0 && dashIndex <= 50) ||
+            (doubleDashIndex >= 0 && doubleDashIndex <= 50) ||
+            (enDashIndex >= 0 && enDashIndex <= 50) ||
+            (emDashIndex >= 0 && emDashIndex <= 50)) {
+            return text.replaceAll(regex, "").trim();
+        } else {
+            return text; // return if doesn't found
+        }
+    }
+
+    private String convertToTimezone(String inputTime, String format, String targetZone) {
+        // Parse inputted time with given format
+        DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern(format);
+        ZonedDateTime zonedDateTime = ZonedDateTime.parse(inputTime, inputFormatter);
+
+        // Convert to target timezone
+        ZonedDateTime targetTime = zonedDateTime.withZoneSameInstant(ZoneId.of(targetZone));
+
+        // Format to ISO 8601
+        return targetTime.format(DateTimeFormatter.ISO_INSTANT);
+    }
+
+    private ZonedDateTime convertDatetimeToUTC(String date) {
+
+        // Parse string dengan offset
+        OffsetDateTime odt = OffsetDateTime.parse(date, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+
+        // Konversi ke UTC
+        return odt.toInstant().atZone(ZoneOffset.UTC);
+
+    }
+
+
+    
 
 }
 

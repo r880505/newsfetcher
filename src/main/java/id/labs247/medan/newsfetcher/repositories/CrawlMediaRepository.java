@@ -133,7 +133,6 @@ public class CrawlMediaRepository {
             }
         } catch (SQLException e) {
             e.printStackTrace();
-            throw new IOException("Error retrieving content filters from database", e);
         }
         return domains;
     }
@@ -210,7 +209,7 @@ public class CrawlMediaRepository {
                         + "JOIN url_format uf ON cm.media_id = uf.media_id "
                         + "JOIN date_format df ON cm.date_format_id = df.id "
                         + "WHERE cm.schedule_minutes >= 0 "
-                        + "AND uf.format LIKE '%date%' "
+                        + "AND uf.format LIKE '%{date}%' "
                         + "AND df.format LIKE '%yyyy%' "
                         + "AND df.format LIKE '%MM%' "
                         + "AND df.format LIKE '%dd%'";
@@ -224,7 +223,6 @@ public class CrawlMediaRepository {
             }
         } catch (SQLException e) {
             e.printStackTrace();
-            throw new IOException("Error retrieving content filters from database", e);
         }
         return domains;
     }
@@ -244,7 +242,7 @@ public class CrawlMediaRepository {
                     crawlExtraComment.setRequestParam(resultSet.getString("request_param") != null ? resultSet.getString("request_param") : "");
                     crawlExtraComment.setMediaId(resultSet.getLong("media_id"));
                     crawlExtraComment.setCookie(resultSet.getString("cookie") != null ? resultSet.getString("cookie") : "");
-                    crawlExtraComment.setSelector(resultSet.getString("selector"));
+                    crawlExtraComment.setSelectorComment(resultSet.getString("selector"));
                 }
             }
         } catch (SQLException e) {

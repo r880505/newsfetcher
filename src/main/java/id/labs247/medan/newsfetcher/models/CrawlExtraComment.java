@@ -13,6 +13,6 @@ public class CrawlExtraComment {
     private String requestParam;
     private String articleIdSelect;
     private String cookie;
-    private String selector;
+    private String selectorComment;
     
 }
