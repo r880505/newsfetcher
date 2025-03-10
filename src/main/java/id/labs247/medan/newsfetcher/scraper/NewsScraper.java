@@ -272,6 +272,7 @@ public class NewsScraper {
 
                     // Remove domain/domain's name and city before dash
                     content = removeBeforeDash(content);
+                    String cleanText = cleanTextExceptLetter(content);
 
                     // Send log if content is empty
                     if (content.isEmpty()) {
@@ -319,7 +320,7 @@ public class NewsScraper {
                     }
 
                     // Create JSON Content and add to array list
-                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title, author, keywords, comments);
+                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title, author, keywords, comments, cleanText);
                     if (!content.isEmpty()) {
                         contentMessagesToKafka.add(jsonNews.toString());
                     }
@@ -822,6 +823,7 @@ public class NewsScraper {
     // Create Solr Document from JSON Object
     private SolrInputDocument createSolrDocument(JSONObject jsonToParse) {
         String content = jsonToParse.optString("content");
+        String cleanText = jsonToParse.optString("clean_text");
         String url = jsonToParse.optString("url");
         String image = jsonToParse.optString("image");
         String domain = jsonToParse.optString("domain");
@@ -867,6 +869,7 @@ public class NewsScraper {
         document.addField("id", url);
         document.addField("content", content);
         document.addField("image", image);
+        document.addField("clean_text", cleanText);
         
         // date = convertToTimezone(date, "yyyy-MM-dd'T'HH:mm:ssXXX", "UTC");
         ZonedDateTime zdt = convertDatetimeToUTC(date);
@@ -908,7 +911,7 @@ public class NewsScraper {
     
     // Create JSON for Kafka Content
     private JSONObject createJsonKafkaContent(String url, String domain, String content, String imageSource,
-            String datePublished, String title, List<String> author, String[] keywords, JSONArray comments) {
+            String datePublished, String title, List<String> author, String[] keywords, JSONArray comments, String cleanText) {
         JSONObject json = new JSONObject();
         json.put("url", url);
         json.put("domain", domain);
@@ -921,6 +924,7 @@ public class NewsScraper {
         json.put("author", new JSONArray(author));
         json.put("keywords", new JSONArray(keywords));
         json.put("comments", comments);
+        json.put("clean_text", cleanText);
         return json;
     }
 
@@ -1557,6 +1561,11 @@ public class NewsScraper {
         // Konversi ke UTC
         return odt.toInstant().atZone(ZoneOffset.UTC);
 
+    }
+
+    private String cleanTextExceptLetter(String text) {
+        String regex = "[^a-zA-Z ]";
+        return text.replaceAll(regex, "").replaceAll("\\s{2,}", " ").trim();
     }
 
 
