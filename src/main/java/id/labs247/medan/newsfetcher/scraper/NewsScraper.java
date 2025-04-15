@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -799,11 +800,11 @@ public class NewsScraper {
             JSONObject jsonToParse = new JSONObject(jsonContent);
             String url = jsonToParse.getString("url");
             SolrInputDocument solrInputDocument = createSolrDocument(jsonToParse);
-            // if (urlCheckerHBase(url) == 3) {
+            if (urlCheckerHBase(url) == 3) {
                 solrInputDocuments.add(solrInputDocument);
-            // } else {
-            //     logger.info("[DEBUG] HBase | The URL is already in Solr | {}", url);
-            // }
+            } else {
+                logger.info("[DEBUG] HBase | The URL is already in Solr | {}", url);
+            }
         }
 
         try {
@@ -830,6 +831,7 @@ public class NewsScraper {
         String date = jsonToParse.optString("datePublished");
         String title = jsonToParse.optString("title");
         String dateId = parseDatetimeToDateOnly(date);
+        String solrDocId = generateUuid();
         JSONArray commentsArray = jsonToParse.optJSONArray("comments");
 
         // Construct author as array
@@ -866,7 +868,7 @@ public class NewsScraper {
         SolrInputDocument document = new SolrInputDocument();
         document.addField("domain", domain);
         document.addField("url", url);
-        document.addField("id", url);
+        document.addField("id", solrDocId);
         document.addField("content", content);
         document.addField("image", image);
         document.addField("clean_text", cleanText);
@@ -875,7 +877,6 @@ public class NewsScraper {
         ZonedDateTime zdt = convertDatetimeToUTC(date);
         String formattedDate = zdt.format(DateTimeFormatter.ISO_INSTANT); // Konversi ke format ISO-8601
         document.addField("date", formattedDate);
-
         document.addField("title", title);
         document.addField("dateid", dateId);
 
@@ -1036,7 +1037,7 @@ public class NewsScraper {
         return null;
     }
 
-    // Match datetime for handling patrse datetime
+    // Match datetime for handling parse datetime
     private boolean matchFormatter(String dateString) {
         for (DateTimeFormatter formatter : formatters) {
             try {
@@ -1138,20 +1139,6 @@ public class NewsScraper {
         }
     
         return authors;
-    }
-
-    private String parseImage(Document document, String selector) throws IOException {
-        Element element = getElements(document, selector).first();
-        if (element != null) {
-            String[] attributes = {"data-src", "src", "content"};
-            for (String attribute : attributes) {
-                String attrValue = element.attr(attribute);
-                if (!attrValue.isEmpty()) {
-                    return attrValue;
-                }
-            }
-        }
-        return "";
     }
 
     private String parseImage(Document document, List<String> selectors) throws IOException {
@@ -1467,14 +1454,6 @@ public class NewsScraper {
         
     }
 
-    private String removeTimezone(String dateString) {
-        // Regex pattern to remove timezone (matches `+hh:mm` or `-hh:mm` at the end of the string)
-        String pattern = "(\\+|\\-)[0-9]{2}:[0-9]{2}$";
-        
-        // Replace the timezone part with an empty string
-        return dateString.replaceAll(pattern, "");
-    }
-
     private static String completeRequestBodyOrParam(String requestString, String articleId) {
         return requestString.replace("articleId", articleId);
     }
@@ -1541,18 +1520,6 @@ public class NewsScraper {
         }
     }
 
-    private String convertToTimezone(String inputTime, String format, String targetZone) {
-        // Parse inputted time with given format
-        DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern(format);
-        ZonedDateTime zonedDateTime = ZonedDateTime.parse(inputTime, inputFormatter);
-
-        // Convert to target timezone
-        ZonedDateTime targetTime = zonedDateTime.withZoneSameInstant(ZoneId.of(targetZone));
-
-        // Format to ISO 8601
-        return targetTime.format(DateTimeFormatter.ISO_INSTANT);
-    }
-
     private ZonedDateTime convertDatetimeToUTC(String date) {
 
         // Parse string dengan offset
@@ -1568,7 +1535,16 @@ public class NewsScraper {
         return text.replaceAll(regex, "").replaceAll("\\s{2,}", " ").trim();
     }
 
+    private String generateUuid() {
+        // Generate a random UUID
+        UUID uuid = UUID.randomUUID();
 
+        // Convert the UUID to a string
+        String uuidString = uuid.toString();
+
+        // Return the modified UUID string
+        return uuidString;
+    }
     
 
 }
