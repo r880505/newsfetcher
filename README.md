@@ -19,7 +19,7 @@ mvn clean install
 ```
 Run jar file
 ```
-java -jar -jar /path_to_jar_file/newsfetcher-0.0.1-SNAPSHOT.jar
+java -jar /path_to_jar_file/newsfetcher-1.0.0-SNAPSHOT.jar
 ```
 If you use kerberos for authenticate, use this command
 ```
@@ -28,6 +28,6 @@ java \
 -DkerberosKeytab=/path/to/keytab/file/your_keytab.keytab \
 -Djavax.security.auth.useSubjectCredsOnly=false \
 -Djava.security.auth.login.config=/path/to/config/file/your_config.conf \
--jar /path/to/jar/file/newsfetcher-0.0.1-SNAPSHOT.jar
+-jar /path/to/jar/file/newsfetcher-1.0.0-SNAPSHOT.jar
 
 ```
