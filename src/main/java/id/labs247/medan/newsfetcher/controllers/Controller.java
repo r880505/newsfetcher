@@ -7,19 +7,22 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
-
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
+import id.labs247.medan.newsfetcher.models.CrawlMedia;
 import id.labs247.medan.newsfetcher.repositories.CrawlMediaRepository;
 import id.labs247.medan.newsfetcher.scraper.NewsScraper;
 
-public class BackdateController {
+public class Controller {
 
-    private static final Logger logger = LogManager.getLogger(BackdateController.class);
+    private static final Logger logger = LogManager.getLogger(Controller.class);
 
     private CrawlMediaRepository crawlMediaRepository = new CrawlMediaRepository();
 
@@ -27,12 +30,11 @@ public class BackdateController {
 
     private String baseUrl = "/newsfetcher/api";
     
-    public BackdateController() {
+    public Controller() {
         setupRoutes();
     }
 
     private void setupRoutes() {
-
 
         // Get list of news portal that can be parse old news by date
         get(baseUrl+"/newsportal", (req, res) -> {
@@ -117,6 +119,55 @@ public class BackdateController {
             }
         });
 
+        get(baseUrl + "/logo", (req, res) -> {
+            logger.info("Received /logo request");
+
+            String logoBasePath = System.getenv("LOGO_PATH");
+            if (logoBasePath == null || logoBasePath.isEmpty()) {
+                logger.error("LOGO_PATH environment variable is not set");
+                res.status(500);
+                return Response(500, "LOGO_PATH not set", null);
+            }
+
+            String domain = req.queryParams("domain");
+
+            if (domain != null && !domain.isEmpty()) {
+                // === Get logo by domain ===
+                CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain(domain);
+                if (crawlMedia == null) {
+                    logger.warn("Domain not found: {}", domain);
+                    res.status(404);
+                    return Response(404, "Domain not found", null);
+                }
+
+                Map<String, Object> logoData = buildLogoData(logoBasePath, crawlMedia);
+                if (logoData == null) {
+                    res.status(404);
+                    return Response(404, "Logo file not found", null);
+                }
+
+                res.type("application/json");
+                res.status(200);
+                return Response(200, "Successfully get logo", logoData);
+
+            } else {
+                // === Get all logos ===
+                List<CrawlMedia> allMedia = crawlMediaRepository.getAllActiveNewsPortal();
+                List<Map<String, Object>> allData = new ArrayList<>();
+
+                for (CrawlMedia media : allMedia) {
+                    Map<String, Object> logoData = buildLogoData(logoBasePath, media);
+                    if (logoData != null) {
+                        allData.add(logoData);
+                    }
+                }
+
+                res.type("application/json");
+                res.status(200);
+                return Response(200, "Successfully get all logos", allData);
+            }
+        });
+
     }
 
     private JSONObject Response(Integer statusCode, String message, Object data) {
@@ -128,4 +179,33 @@ public class BackdateController {
         }
         return response;
     }
+
+    private Map<String, Object> buildLogoData(String logoBasePath, CrawlMedia media) {
+        File logoFile = new File(logoBasePath, media.getMediaLogo());
+
+        if (!logoFile.exists()) {
+            logger.warn("Logo file not found: {}", logoFile.getAbsolutePath());
+            return null;
+        }
+
+        try {
+            byte[] fileBytes = Files.readAllBytes(logoFile.toPath());
+            String mimeType = Files.probeContentType(logoFile.toPath());
+            if (mimeType == null) mimeType = "application/octet-stream";
+
+            String base64 = Base64.getEncoder().encodeToString(fileBytes);
+            String logoBase64 = "data:" + mimeType + ";base64," + base64;
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("domain", media.getOriginalDomain());
+            data.put("landingPage", media.getLandingUrl());
+            data.put("logoBase64", logoBase64);
+
+            return data;
+        } catch (IOException e) {
+            logger.warn("Failed to read logo file for {}: {}", media.getOriginalDomain(), e.getMessage());
+            return null;
+        }
+    }
+
 }

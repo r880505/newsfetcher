@@ -15,7 +15,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import id.labs247.medan.newsfetcher.configs.ConfigurationLoader;
-import id.labs247.medan.newsfetcher.controllers.BackdateController;
+import id.labs247.medan.newsfetcher.controllers.Controller;
 import id.labs247.medan.newsfetcher.repositories.CrawlMediaRepository;
 import id.labs247.medan.newsfetcher.scraper.CrawlerScheduler;
 import id.labs247.medan.newsfetcher.scraper.NewsScraper;
@@ -35,7 +35,7 @@ public class MainApplication {
 
         // Initialize Java Spark Controller
         port(port);
-        new BackdateController();
+        new Controller();
 
         // Initialize each service
         CrawlMediaRepository crawlMediaDAO = new CrawlMediaRepository();
