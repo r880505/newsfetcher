@@ -1158,7 +1158,7 @@ public class NewsScraper {
                 }
             }
         }
-        return ""; // Return if not found image
+        return ""; // Return if image not found
     }
 
     private String unescapeHTMLSpecialCharacter(String textToUnescape) {
@@ -1301,7 +1301,7 @@ public class NewsScraper {
                 break;
         
             default:
-                throw new IllegalArgumentException("Unsupported request method: " + requestMethod);
+                logger.info("Unsupported request method: " + requestMethod);
         }
 
         // Create array for result
