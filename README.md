@@ -13,6 +13,13 @@ Scrape news from popular news portal
 ### Build and Run
 Note: before run this project, you must run Zookeeper, Kafka and Solr first, adjust Database (Postgres, MySQL or others), Kafka, Solr, url checker API as yours in application.properties
 
+#### Run directly without build jar
+Use this command if you want to run directly without build the jar file first
+```
+mvn -X exec:java -Dexec.mainClass="id.labs247.medan.newsfetcher.MainApplication"
+```
+
+#### Run with jar file
 Build jar file
 ```
 mvn clean install
