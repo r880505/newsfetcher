@@ -15,6 +15,11 @@ Note: before run this project, you must run Zookeeper, Kafka and Solr first, adj
 
 #### Run directly without build jar
 Use this command if you want to run directly without build the jar file first
+Clean package
+```
+mvn clean package
+```
+Run the project
 ```
 mvn -X exec:java -Dexec.mainClass="id.labs247.medan.newsfetcher.MainApplication"
 ```
