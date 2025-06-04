@@ -11,6 +11,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -168,6 +171,50 @@ public class Controller {
             }
         });
 
+
+        get(baseUrl + "/all-newsportal", (req, res) -> {
+            res.type("application/json");
+
+            String logoBasePath = System.getenv("LOGO_PATH");
+            if (logoBasePath == null || logoBasePath.isEmpty()) {
+            logger.error("LOGO_PATH environment variable is not set");
+            res.status(500);
+            return Response(500, "LOGO_PATH not set", null);
+            }
+
+            try {
+                List<CrawlMedia> allMedia = crawlMediaRepository.getAllNewsPortal();
+                List<Map<String, Object>> allData = allMedia.stream().map(media -> {
+                    Map<String, Object> dataPortal = new HashMap<>();
+                    dataPortal.put("domain", media.getOriginalDomain());
+                    dataPortal.put("landingPage", media.getLandingUrl());
+                    dataPortal.put("logoBase64", getLogoBase64(logoBasePath, media));
+                    
+                    Boolean isActive = media.getScheduleMinutes() >= 0 ? true : false;
+                    dataPortal.put("isActive", isActive);
+
+                    LocalDateTime lastScheduled = media.getLastScheduled();
+                    if (lastScheduled != null) {
+                        ZoneId zonePlus7 = ZoneId.of("Asia/Jakarta");
+                        ZonedDateTime zonedDateTime = lastScheduled.atZone(zonePlus7);
+                        ZonedDateTime utcDateTime = zonedDateTime.withZoneSameInstant(ZoneOffset.UTC);
+                        dataPortal.put("lastScheduled", utcDateTime.toString());
+                    } else {
+                        dataPortal.put("lastScheduled", null);
+                    }
+
+                    return dataPortal;
+                }).collect(Collectors.toList());
+
+                res.status(200);
+                return Response(200, "Successfully get data", allData);
+            } catch (Exception e) {
+                logger.error("Failed to get all news portals", e);
+                res.status(500);
+                return Response(500, "Internal server error", null);
+            }
+        });
+
     }
 
     private JSONObject Response(Integer statusCode, String message, Object data) {
@@ -181,6 +228,17 @@ public class Controller {
     }
 
     private Map<String, Object> buildLogoData(String logoBasePath, CrawlMedia media) {
+            String logoBase64 = getLogoBase64(logoBasePath, media);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("domain", media.getOriginalDomain());
+            data.put("landingPage", media.getLandingUrl());
+            data.put("logoBase64", logoBase64);
+
+            return data;
+    }
+
+    private String getLogoBase64(String logoBasePath, CrawlMedia media) {
         File logoFile = new File(logoBasePath, media.getMediaLogo());
 
         if (!logoFile.exists()) {
@@ -194,16 +252,9 @@ public class Controller {
             if (mimeType == null) mimeType = "application/octet-stream";
 
             String base64 = Base64.getEncoder().encodeToString(fileBytes);
-            String logoBase64 = "data:" + mimeType + ";base64," + base64;
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("domain", media.getOriginalDomain());
-            data.put("landingPage", media.getLandingUrl());
-            data.put("logoBase64", logoBase64);
-
-            return data;
+            return "data:" + mimeType + ";base64," + base64;
         } catch (IOException e) {
-            logger.warn("Failed to read logo file for {}: {}", media.getOriginalDomain(), e.getMessage());
+            logger.warn("Failed to read logo file: {}", e.getMessage());
             return null;
         }
     }
