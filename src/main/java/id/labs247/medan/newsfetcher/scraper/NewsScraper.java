@@ -883,7 +883,7 @@ public class NewsScraper {
         // Add author as array or list to Solr document
         if (author != null) {
             for (String authorName : author) {
-                document.addField("author", authorName);
+                document.addField("author__ms", authorName);
             }
         }
 
@@ -905,6 +905,10 @@ public class NewsScraper {
         String lastChecked = convertDatetimeToUTC(LocalDateTime.now().toString() + "+07:00")
                             .format(DateTimeFormatter.ISO_INSTANT);
         document.addField("last_checked", lastChecked);
+
+        String processDate = convertDatetimeToUTC(LocalDateTime.now().toString() + "+07:00")
+                            .format(DateTimeFormatter.ISO_INSTANT);
+        document.addField("processDate", processDate);
 
         return document;
     }
