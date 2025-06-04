@@ -3,5 +3,5 @@ Archiver-Version: Plexus Archiver
 Built-By: cacaban
 Created-By: Apache Maven 3.6.3
 Build-Jdk: 1.8.0_412
-Main-Class: id.labs247.medan.mediaonline_crawler.MainApplication
+Main-Class: id.labs247.medan.newsfetcher.MainApplication
 
