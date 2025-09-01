@@ -48,23 +48,21 @@ public class CrawlerScheduler {
         allCrawlMedia = crawlMediaDAO.getAllActiveNewsPortal();
         for (CrawlMedia crawlMedia : allCrawlMedia) {
             int scheduleMinute = crawlMedia.getScheduleMinutes();
-            long initialDelay = getInitialDelay(scheduleMinute);
+            if (scheduleMinute >= 0) {
+                long initialDelay = 0;
+                // long initialDelay = scheduleMinute;
+                LocalDateTime startTime = LocalDateTime.now().plusMinutes(initialDelay);
+                logger.info("{} will start crawling at {}", crawlMedia.getOriginalDomain(), startTime);
 
-            scheduler.scheduleAtFixedRate(() -> {
-                try {
-                    runCrawlingTask(crawlMedia);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }, initialDelay, TimeUnit.HOURS.toMinutes(1), TimeUnit.MINUTES);
+                scheduler.scheduleAtFixedRate(() -> {
+                    try {
+                        runCrawlingTask(crawlMedia);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }, initialDelay, scheduleMinute, TimeUnit.MINUTES);
+            }
         }
-    }
-
-    private long getInitialDelay(int scheduleMinute) {
-        LocalDateTime now = LocalDateTime.now();
-        int currentMinute = now.getMinute();
-        int delay = (scheduleMinute - currentMinute + 60) % 60;
-        return delay;
     }
 
     public void runCrawlingTask(CrawlMedia crawlMedia) {
@@ -116,7 +114,7 @@ public class CrawlerScheduler {
     }
 
     public void refreshCrawlMedia() {
-        long initialDelay = getInitialDelay(50);  // Calculate the delay for 50th minute
+        long initialDelay = 0;
         scheduler.scheduleAtFixedRate(() -> {
             try {
                 allCrawlMedia = crawlMediaDAO.getAllActiveNewsPortal();  // Fetch active portals
