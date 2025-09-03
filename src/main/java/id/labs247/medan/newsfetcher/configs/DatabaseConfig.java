@@ -1,21 +1,29 @@
 package id.labs247.medan.newsfetcher.configs;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 public class DatabaseConfig {
     
+    private static HikariDataSource dataSource;
+
+    static {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(ConfigurationLoader.getString("datasource.url"));
+        config.setUsername(ConfigurationLoader.getString("datasource.username"));
+        config.setPassword(ConfigurationLoader.getString("datasource.password"));
+        config.addDataSourceProperty("cachePrepStmts", "true");
+        config.addDataSourceProperty("prepStmtCacheSize", "250");
+        config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
+        dataSource = new HikariDataSource(config);
+    }
+
     // Method to establish a connection to the database
     public static Connection getDbConnection() throws SQLException {
-
-        // Retrieve JDBC connection properties
-        String url = ConfigurationLoader.getString("datasource.url");
-        String username = ConfigurationLoader.getString("datasource.username");
-        String password = ConfigurationLoader.getString("datasource.password");
-
-        // Establish connection
-        return DriverManager.getConnection(url, username, password);
+        return dataSource.getConnection();
     }
 
     // Method to close the connection
