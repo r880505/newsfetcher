@@ -12,13 +12,15 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
-import org.apache.logging.log4j.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import id.labs247.medan.newsfetcher.configs.KafkaConfig;
@@ -108,21 +110,25 @@ public class KafkaService {
             properties.put(SaslConfigs.SASL_KERBEROS_SERVICE_NAME, kafkaServiceName);
         }
 
-        // Instantiate Kafka Producer
         try (KafkaProducer<String, String> kafkaProducer = new KafkaProducer<>(properties)) {
+            AtomicInteger errorCount = new AtomicInteger(0);
 
             for (String message : messages) {
                 kafkaProducer.send(new ProducerRecord<>(topic, message), (metadata, exception) -> {
                     if (exception != null) {
+                        errorCount.incrementAndGet();
                         logger.error("[ERROR] Kafka | Failed to send message | " + exception.getMessage(), exception);
-                    } else {
-                        logger.info("[DEBUG] Kafka | Successfully sent to topic {} | Partition: {} | Offset: {}", 
-                                    metadata.topic(), metadata.partition(), metadata.offset());
                     }
                 });
             }
 
-            kafkaProducer.flush(); // Ensure all messages in batch was sent
+            if (errorCount.get() > 0) {
+                logger.error("[ERROR] Kafka | Failed to send {} messages out of {} to topic {}", errorCount.get(), messages.size(), topic);
+            }
+            else {
+                logger.info("[DEBUG] Kafka | Successfully sent all {} messages to topic {}", messages.size(), topic);
+            }
+            kafkaProducer.flush();
 
         } catch (Exception e) {
             logger.error("[ERROR] Kafka | Failed to produce messages in bulk | " + e.getMessage(), e);

@@ -55,6 +55,18 @@ public class Controller {
 
         // Parse news portal by old date
         post(baseUrl+"/backdatenews", (req, res) -> {
+            /*
+            Example request body for /backdatenews endpoint:
+
+            {
+                "date": "2024-06-01",
+                "page": 10,
+                "domains": [
+                    "detik.com",
+                    "kompas.com"
+                ]
+            }
+            */
             res.type("application/json");
             
             // Initialize ExecutorService
@@ -87,7 +99,7 @@ public class Controller {
                             String topicUrl = newsScraper.getTopicUrlBackdate(domain);
                             String topicNews = newsScraper.getTopicContentBackdate(domain);
                             String topicBacaJuga = newsScraper.getTopicBacaJugaBackdate(domain);
-                            newsScraper.parseIndexPage(domain, date, topicUrl, page);
+                            newsScraper.executeParseIndexPage(domain, date, topicUrl, page);
                             newsScraper.parseNews(domain, false, topicUrl, topicNews, topicBacaJuga);
                             newsScraper.insertNewsToSolr(topicNews);
                         } catch (Exception e) {
@@ -213,8 +225,17 @@ public class Controller {
                 res.status(500);
                 return Response(500, "Internal server error", null);
             }
+        });        get(baseUrl + "/get-selector", (req, res) -> {
+            res.type("application/json");
+            try {
+                CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain("antaranews.com");
+                res.status(200);
+                return Response(200, "Successfully get selector", crawlMedia.getContentSelect());
+            } catch (Exception e) {
+                res.status(500);
+                return Response(500, "Internal server error", null);
+            }
         });
-
     }
 
     private JSONObject Response(Integer statusCode, String message, Object data) {

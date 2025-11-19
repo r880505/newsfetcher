@@ -16,11 +16,17 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
 import org.apache.solr.client.solrj.impl.HttpClientUtil;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
-import org.apache.solr.client.solrj.impl.Krb5HttpClientConfigurer;
+// import org.apache.solr.client.solrj.impl.Krb5HttpClientConfigurer;
 import org.apache.solr.client.solrj.response.SolrPingResponse;
 import org.apache.solr.common.SolrInputDocument;
 
 import id.labs247.medan.newsfetcher.configs.SolrConfig;
+
+import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.response.QueryResponse;
+import org.apache.solr.common.SolrDocumentList;
+import java.util.ArrayList;
+import java.util.Map;
 
 public class SolrService {
 
@@ -139,7 +145,7 @@ public class SolrService {
         if (solrClient == null) {
             synchronized (SolrService.class) {
                 if (solrIsSecure) {
-                    HttpClientUtil.addConfigurer(new Krb5HttpClientConfigurer());
+                    // HttpClientUtil.addConfigurer(new Krb5HttpClientConfigurer());
                 }
                 if (solrIsCluster) {
                     zkHosts = getSolrZkHosts();
