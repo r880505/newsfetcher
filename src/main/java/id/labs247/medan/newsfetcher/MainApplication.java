@@ -123,6 +123,7 @@ public class MainApplication {
     private static void logProperties() {
         logger.info("Datasource URL: " + ConfigurationLoader.getString("datasource.url"));
         logger.info("Kafka Bootstrap Servers: " + ConfigurationLoader.getString("kafka.bootstrap.servers"));
+        logger.info("URL-Checker: " + ConfigurationLoader.getString("api.url-checker"));
         if(ConfigurationLoader.getString("solr.host")==null) {
             logger.info("Solr zk-host: " + ConfigurationLoader.getString("solr.zk-host"));
         } else {

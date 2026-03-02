@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
-import java.util.regex.Pattern;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -24,6 +24,8 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -63,22 +65,26 @@ public class NewsScraper {
     private String urlCheckerApi = ConfigurationLoader.getUrlCheckerApi();
 
     private static final List<DateTimeFormatter> formatters = Arrays.asList(
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"),     
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),  
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"),
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ"),        
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),        
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),            
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),           
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss'Z'"),
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mmZ")    
-    );
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss'Z'"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mmZ"));
 
-    private static int[] sleepDurations = {5000, 10000, 15000, 20000, 25000, 30000}; // Sleep durations in milliseconds
+    private static int[] sleepDurations = { 5000, 10000, 15000, 20000, 25000, 30000 }; // Sleep durations in
+                                                                                       // milliseconds
 
-    /* ============================================================  Scraper ============================================================*/
+    /*
+     * ============================================================ Scraper
+     * ============================================================
+     */
 
-    public void executeParseIndexPage(String domain, String dateToParse, String topicUrl, int page) throws Exception, IOException {
+    public void executeParseIndexPage(String domain, String dateToParse, String topicUrl, int page)
+            throws Exception, IOException {
         String newsPortal = getNameOfNewsPortal(domain);
 
         try {
@@ -106,11 +112,13 @@ public class NewsScraper {
                     List<String> articleLinks = JsoupHelper.getUrl(url, linkSelector);
 
                     for (String link : articleLinks) {
-                        if(link.startsWith("/")) {
+                        if (link.startsWith("/")) {
                             link = "https://" + domain + link;
                         }
-                        JSONObject jsonUrl = createJsonKafkaUrl(link, url, domain, domain, depth, linkSelector, articleSelector);
-                        if (depth <= maxDepth && isValidLink(link, urlFilters) && !link.contains("#") && link.contains(domain)) {
+                        JSONObject jsonUrl = createJsonKafkaUrl(link, url, domain, domain, depth, linkSelector,
+                                articleSelector);
+                        if (depth <= maxDepth && isValidLink(link, urlFilters) && !link.contains("#")
+                                && link.contains(domain)) {
                             urlMessagesToKafka.add(jsonUrl.toString());
                         }
                     }
@@ -122,27 +130,41 @@ public class NewsScraper {
             kafkaService.sendBulkToKafka(urlMessagesToKafka, topicUrl);
             logger.info(String.format("[DEBUG] %s | Successfully sent news URL data to Kafka", newsPortal));
 
-
         } catch (Exception e) {
             logger.error(String.format("[ERROR] %s | Failed to scrape Index Page | %s", newsPortal, e.getMessage()), e);
         }
     }
 
-    public void executeParseRelatedNews(String domain, String topicUrl, String topicNews, String topicRelatedNewsUrl) throws Exception {
+    public void executeParseRelatedNews(String domain, String topicUrl, String topicNews, String topicRelatedNewsUrl)
+            throws Exception {
         parseNews(domain, true, topicUrl, topicNews, topicRelatedNewsUrl);
     }
 
-    public void executeParseNews(String domain, String topicUrl, String topicNews, String topicRelatedNewsUrl) throws Exception {
+    public void executeParseNews(String domain, String topicUrl, String topicNews, String topicRelatedNewsUrl)
+            throws Exception {
         parseNews(domain, false, topicUrl, topicNews, topicRelatedNewsUrl);
     }
 
-    public void parseNews(String domain, boolean isRelatedNews, String topicUrl, String topicNews, String topicRelatedNewsUrl) throws IOException, Exception {
+    public void parseNews(String domain, boolean isRelatedNews, String topicUrl, String topicNews,
+            String topicRelatedNewsUrl) throws IOException, Exception {
         CrawlMedia crawlMedia = crawlMediaRepository.getNewsPortalByDomain(domain);
+        if ((crawlMedia == null || crawlMedia.getMediaId() == null) && domain.contains(".")) {
+            String[] parts = domain.split("\\.");
+            if (parts.length > 2) {
+                String baseDomain = parts[parts.length - 2] + "." + parts[parts.length - 1];
+                CrawlMedia baseMedia = crawlMediaRepository.getNewsPortalByDomain(baseDomain);
+                if (baseMedia != null && baseMedia.getMediaId() != null) {
+                    crawlMedia = baseMedia;
+                    logger.info(String.format("[INFO] Domain %s tidak ditemukan, menggunakan base domain %s", domain,
+                            baseDomain));
+                }
+            }
+        }
         List<String> selectorContentList = Arrays.asList(crawlMedia.getContentSelect().split(","));
         String selectorBacaJuga = crawlMedia.getBacajugaSelect();
         String selectorImage = crawlMedia.getImageSelect();
         List<String> imageSelectors = Arrays.asList(selectorImage);
-        String pageParam = crawlMedia.getPageParam();
+        String pageParam = (crawlMedia.getPageParam() != null) ? crawlMedia.getPageParam() : "";
         List<String> filterContent = filterRepository.getAllContentFilter();
         List<String> urlFilters = filterRepository.getAllUrlFilter();
         String newsPortal = getNameOfNewsPortal(domain);
@@ -151,7 +173,7 @@ public class NewsScraper {
         kafkaService.consumeFromKafka(topicNews);
         String topic;
         List<String> jsonFromKafkaList = new ArrayList<>();
-        if(isRelatedNews) {
+        if (isRelatedNews) {
             jsonFromKafkaList = kafkaService.parsingKafkaResult(kafkaService.consumeFromKafka(topicRelatedNewsUrl));
             topic = topicRelatedNewsUrl;
         } else {
@@ -172,7 +194,7 @@ public class NewsScraper {
                 if (random.nextBoolean()) { // Randomly decide if we should sleep
                     int randomIndex = random.nextInt(sleepDurations.length);
                     int sleepDuration = sleepDurations[randomIndex];
-                    
+
                     int sleepInSeconds = sleepDuration / 1000;
                     logger.info("[DEBUG] Sleeping for " + sleepInSeconds + " seconds");
 
@@ -192,42 +214,144 @@ public class NewsScraper {
 
                 depth = jsonToParse.getInt("depth");
                 maxDepth = jsonToParse.getInt("max_depth");
-    
+
                 if (depth <= maxDepth) {
-                    Document document = JsoupHelper.getDocument(url);
-                    Document documentWithPagination = JsoupHelper.getDocument(url+pageParam);
+                    String param = (pageParam != null && !pageParam.isEmpty()) ? pageParam : "";
+                    Document document = JsoupHelper.getDocument(url + param);
+
+                    if (document == null) {
+                        logger.error("[ERROR] Gagal mengambil halaman: " + url + param);
+                        continue;
+                    }
+
                     depth += 1;
+                    StringBuilder contentBuilder = new StringBuilder();
                     String content = "";
                     for (String selector : selectorContentList) {
-                        content = JsoupHelper.getNews(documentWithPagination, parseFilterSelector(new ArrayList<>(), selector));
-                        if (!content.isEmpty()) {
-                            break; // Stop if content is found
+                        Elements elements = document.select(selector);
+                        if (!elements.isEmpty()) {
+                            for (Element element : elements) {
+                                Element clone = element.clone();
+                                clone.select(
+                                        ".labelhead_1, .div-tag, .div-share, .div-comment, .br, .pagination, .page-links, .halaman, .card, .sidebar, .related, .ads, footer, header, #liste_terkait, .liste_terkait, .tags, .tag-list, .artikel-terkait, .related-article")
+                                        .remove();
+
+                                for (Element block : clone.select(
+                                        "p, div, br, li, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, table, tr, section, article, header, footer, strong, b, em, i, a, span")) {
+                                    block.prepend("\\n");
+                                    block.after("\\n");
+                                }
+
+                                String rawText = clone.text().replace("\\n", "\n").trim();
+                                String[] lines = rawText.split("\n");
+
+                                List<String> extraFilters = Arrays.asList(
+                                        "Tampilkan Semua", "Editor", "Tags", "beritaTerkait", "SHARE:", "komentar",
+                                        "Halaman:", "Editor:", "baca juga:", "simak juga:", "(**");
+
+                                for (int j = 0; j < lines.length; j++) {
+                                    String lineText = lines[j].trim();
+                                    if (lineText.isEmpty() || lineText.equals(":") || lineText.length() < 3) {
+                                        continue;
+                                    }
+
+                                    boolean isTrash = false;
+                                    String matchedFilter = "";
+                                    for (String filter : filterContent) {
+                                        if (lineText.toLowerCase().contains(filter.toLowerCase())) {
+                                            isTrash = true;
+                                            matchedFilter = filter;
+                                            break;
+                                        }
+                                    }
+                                    if (!isTrash) {
+                                        for (String filter : extraFilters) {
+                                            if (lineText.toLowerCase().contains(filter.toLowerCase())) {
+                                                isTrash = true;
+                                                matchedFilter = filter;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if (isTrash) {
+                                        boolean isBacaJuga = matchedFilter.toLowerCase().contains("juga");
+
+                                        if (isBacaJuga) {
+                                            int labelIdx = lineText.toLowerCase().indexOf(matchedFilter.toLowerCase());
+                                            if (labelIdx > 50) {
+                                                lineText = lineText.substring(0, labelIdx).trim();
+                                                isTrash = false;
+                                            } else {
+                                                while (j + 1 < lines.length && lines[j + 1].trim().length() < 3)
+                                                    j++;
+                                                if (j + 1 < lines.length && lines[j + 1].trim().length() < 150) {
+                                                    j++;
+                                                }
+                                                continue;
+                                            }
+                                        } else if (matchedFilter.equals("(**")
+                                                || matchedFilter.equalsIgnoreCase("Editor")) {
+                                            int labelIdx = lineText.toLowerCase().indexOf(matchedFilter.toLowerCase());
+                                            if (labelIdx > 50) {
+                                                lineText = lineText.substring(0, labelIdx).trim();
+                                                isTrash = false;
+                                            } else {
+                                                while (j + 1 < lines.length && lines[j + 1].trim().length() < 3)
+                                                    j++;
+                                                if (j + 1 < lines.length) {
+                                                    String nextLine = lines[j + 1].trim();
+                                                    if (nextLine.length() < 80 && !nextLine.startsWith("\"")) {
+                                                        j++;
+                                                    }
+                                                }
+                                                continue;
+                                            }
+                                        } else {
+                                            if (lineText.length() < 80) {
+                                                while (j + 1 < lines.length && (lines[j + 1].trim().isEmpty()
+                                                        || lines[j + 1].trim().length() < 3))
+                                                    j++;
+                                                if (j + 1 < lines.length && lines[j + 1].trim().length() < 120) {
+                                                    j++;
+                                                }
+                                            }
+                                            continue;
+                                        }
+                                    }
+
+                                    String cleanLine = JsoupHelper.unescapeHTMLSpecialCharacter(lineText);
+                                    cleanLine = filterAntaraContent(cleanLine);
+                                    contentBuilder.append(cleanLine).append("\n\n");
+                                }
+                            }
+                            content = contentBuilder.toString().trim();
+                            if (!content.isEmpty()) {
+                                content = removeBeforeDash(content);
+                                break;
+                            }
                         }
                     }
-                    content = JsoupHelper.unescapeHTMLSpecialCharacter(content);
-                    content = removeBeforeDash(content);
-                    for (String filter : filterContent) {
-                        content = content.replaceAll("(?i)" + Pattern.quote(filter), "");
-                    }
-                    content = filterAntaraContent(content);
                     String cleanText = cleanTextExceptLetter(content);
                     if (content.isEmpty()) {
-                        logger.warn(String.format("[WARNING] No content found for URL: %s using selectors: %s", url, selectorContentList));
+                        logger.warn(String.format("[WARNING] No content found for URL: %s using selectors: %s", url,
+                                selectorContentList));
                         continue;
                     }
                     List<String> author = JsoupHelper.parseAuthor(document);
                     String image = JsoupHelper.parseImage(document, imageSelectors);
-                    if(image.startsWith("/")) {
+                    if (image.startsWith("/")) {
                         image = "https://" + domain + image;
                     }
                     String[] keywords = JsoupHelper.parseKeywords(document);
                     String title = JsoupHelper.parseTitle(document);
                     String datePublished = JsoupHelper.parseDatePublished(document);
                     JSONArray comments = new JSONArray();
-                    if (crawlMedia.getExtraStatus()==1 && crawlMedia.getExtra().equals("c")) {
-                        CrawlExtraComment crawlExtraComment = crawlMediaRepository.getCrawlExtraCommentByMediaId(crawlMedia.getMediaId());
+                    if (crawlMedia.getExtraStatus() == 1 && crawlMedia.getExtra().equals("c")) {
+                        CrawlExtraComment crawlExtraComment = crawlMediaRepository
+                                .getCrawlExtraCommentByMediaId(crawlMedia.getMediaId());
                         String selectorArticleId = crawlExtraComment.getArticleIdSelect();
-                        String articleId = JsoupHelper.parseArticleId(documentWithPagination, selectorArticleId);
+                        String articleId = JsoupHelper.parseArticleId(document, selectorArticleId);
                         String commentApi = crawlExtraComment.getCommentApi();
                         String requestMethod = crawlExtraComment.getRequestMethod();
 
@@ -240,27 +364,35 @@ public class NewsScraper {
                         String cookie = crawlExtraComment.getCookie();
                         String selectorComment = crawlExtraComment.getSelectorComment();
 
-                        comments = parseComment(domain, url, commentApi, requestMethod, requestBody, requestParam, cookie, selectorComment);
+                        comments = parseComment(domain, url, commentApi, requestMethod, requestBody, requestParam,
+                                cookie, selectorComment);
                     }
-                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title, author, keywords, comments, cleanText);
+                    JSONObject jsonNews = createJsonKafkaContent(url, domain, content, image, datePublished, title,
+                            author, keywords, comments, cleanText);
                     if (!content.isEmpty()) {
-                        logger.info(String.format("[INFO] %s | Successfully scraped news article: %s | Saved to Kafka topic: %s", newsPortal, url, topicNews));
+                        logger.info(String.format(
+                                "[INFO] %s | Successfully scraped news article: %s | Saved to Kafka topic: %s",
+                                newsPortal, url, topicNews));
                         contentMessagesToKafka.add(jsonNews.toString());
                     }
                     List<String> bacajugaLinks = JsoupHelper.getUrl(document, selectorBacaJuga);
                     for (String bacajugaLink : bacajugaLinks) {
-                        if(bacajugaLink.startsWith("/")) {
+                        if (bacajugaLink.startsWith("/")) {
                             bacajugaLink = "https://" + domain + bacajugaLink;
                         }
-                        JSONObject jsonUrl = createJsonKafkaUrl(bacajugaLink, url, domain, domain, depth, crawlMedia.getUrlSelect(), crawlMedia.getContentSelect());
-                        if (depth <= maxDepth && isValidLink(bacajugaLink, urlFilters) && bacajugaLink.contains(domain) && !bacajugaLink.contains("#")) {
+                        JSONObject jsonUrl = createJsonKafkaUrl(bacajugaLink, url, domain, domain, depth,
+                                crawlMedia.getUrlSelect(), crawlMedia.getContentSelect());
+                        if (depth <= maxDepth && isValidLink(bacajugaLink, urlFilters) && bacajugaLink.contains(domain)
+                                && !bacajugaLink.contains("#")) {
                             bacaJugaMessagesToKafka.add(jsonUrl.toString());
                         }
                     }
                 }
             } catch (IOException | JSONException e) {
                 String url = new JSONObject(jsonFromKafkaList.get(i)).getString("url");
-                logger.error(String.format("[ERROR] %s | Failed to scrape news | %s | %s", newsPortal, e.getMessage(), url), e);
+                logger.error(
+                        String.format("[ERROR] %s | Failed to scrape news | %s | %s", newsPortal, e.getMessage(), url),
+                        e);
                 continue;
             }
         }
@@ -271,23 +403,28 @@ public class NewsScraper {
         kafkaService.sendBulkToKafka(bacaJugaMessagesToKafka, topicRelatedNewsUrl);
         logger.info(String.format("[DEBUG] %s | Successfully sent related news URL data to Kafka", newsPortal));
         if (isRelatedNews) {
-            if (depth <= maxDepth && jsonFromKafkaList.size()!=0)
+            if (depth <= maxDepth && jsonFromKafkaList.size() != 0)
                 parseNews(domain, isRelatedNews, topicUrl, topicNews, topicRelatedNewsUrl);
         }
     }
 
-    /* ======================================================= UTILITIES ======================================================- */
+    /*
+     * ======================================================= UTILITIES
+     * ======================================================-
+     */
     public String dateFormatter(LocalDateTime localDateTime, String format) {
         return DateUtils.dateFormatter(localDateTime, format);
     }
+
     public String dateFormatter(String date, String currentFormat, String targetFormat) {
         return DateUtils.dateFormatter(date, currentFormat, targetFormat);
     }
-    
+
     private String regexDomain(String domain) {
         String regex = "\\.(com|id|co)$|\\.[a-zA-Z]{2,}\\.id$|\\.co\\.[a-zA-Z]{2,}$";
         return domain.replaceAll(regex, "");
     }
+
     public String getTopicUrl(String domain) {
         return "url-" + regexDomain(domain);
     }
@@ -305,17 +442,19 @@ public class NewsScraper {
     }
 
     public String getTopicContentBackdate(String domain) {
-        return "news-" + regexDomain(domain)  + "-backdate";
+        return "news-" + regexDomain(domain) + "-backdate";
     }
 
     public String getTopicBacaJugaBackdate(String domain) {
-        return "bacajuga-" + regexDomain(domain)  + "-backdate";
+        return "bacajuga-" + regexDomain(domain) + "-backdate";
     }
+
     private String getNameOfNewsPortal(String domain) {
         return domain.substring(0, 1).toUpperCase() + domain.substring(1);
     }
+
     private String generateUrl(String baseUrl, String date, int page, int multiplier, int substractor) {
-        page = (page-substractor)*multiplier;
+        page = (page - substractor) * multiplier;
         return baseUrl.replace("{date}", date).replace("{page}", String.valueOf(page));
     }
 
@@ -327,6 +466,7 @@ public class NewsScraper {
         }
         return true;
     }
+
     private int urlCheckerHBase(String url) throws IOException {
         String data = "url=" + URLEncoder.encode(url, "UTF-8");
         MediaType mediaType = MediaType.parse("application/x-www-form-urlencoded");
@@ -353,6 +493,7 @@ public class NewsScraper {
             throw e;
         }
     }
+
     public void insertNewsToSolr(String topic) throws Exception {
         List<ConsumerRecord<String, String>> records = kafkaService.consumeFromKafka(topic);
         List<String> jsonContentFromKafka = kafkaService.parsingKafkaResult(records);
@@ -376,7 +517,8 @@ public class NewsScraper {
             if (solrInputDocuments.size() != 0) {
                 logger.info("[DEBUG] Solr | Bulk insert to Solr for topic " + topic);
                 solrService.sendToSolr(solrInputDocuments);
-                logger.info("[DEBUG] Solr | Successfully inserted to Solr for topic " + topic + " with " + solrInputDocuments.size() + " data");
+                logger.info("[DEBUG] Solr | Successfully inserted to Solr for topic " + topic + " with "
+                        + solrInputDocuments.size() + " data");
             } else {
                 logger.warn("[WARN] Solr | No data to insert to Solr for topic " + topic);
             }
@@ -385,6 +527,7 @@ public class NewsScraper {
         }
 
     }
+
     private SolrInputDocument createSolrDocument(JSONObject jsonToParse) {
         String content = jsonToParse.optString("content");
         String cleanText = jsonToParse.optString("clean_text");
@@ -450,17 +593,19 @@ public class NewsScraper {
 
         document.addField("last_checked_ts", System.currentTimeMillis());
         String lastChecked = DateUtils.convertDatetimeToUTC(LocalDateTime.now().toString() + "+07:00")
-                            .format(DateTimeFormatter.ISO_INSTANT);
+                .format(DateTimeFormatter.ISO_INSTANT);
         document.addField("last_checked", lastChecked);
 
         String processDate = DateUtils.convertDatetimeToUTC(LocalDateTime.now().toString() + "+07:00")
-                            .format(DateTimeFormatter.ISO_INSTANT);
+                .format(DateTimeFormatter.ISO_INSTANT);
         document.addField("processDate", processDate);
 
         return document;
     }
+
     private JSONObject createJsonKafkaContent(String url, String domain, String content, String imageSource,
-            String datePublished, String title, List<String> author, String[] keywords, JSONArray comments, String cleanText) {
+            String datePublished, String title, List<String> author, String[] keywords, JSONArray comments,
+            String cleanText) {
         JSONObject json = new JSONObject();
         json.put("url", url);
         json.put("domain", domain);
@@ -476,7 +621,9 @@ public class NewsScraper {
         json.put("clean_text", cleanText);
         return json;
     }
-    private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain, int depth,
+
+    private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain,
+            int depth,
             String urlSelect, String contentSelect) throws IOException {
         Integer maxDepth = crawlMediaRepository.getNewsPortalByDomain(domain).getMaxDepth();
         JSONObject json = new JSONObject();
@@ -493,16 +640,17 @@ public class NewsScraper {
         json.put("parse_auto", 1);
         return json;
     }
+
     private String parseFilterSelector(List<String> filters, String baseSelector) {
         String selector = baseSelector;
         for (String string : filters) {
-            selector +=  ":not(:contains(" + string + "))";
+            selector += ":not(:contains(" + string + "))";
         }
         return selector;
     }
-    
 
-    private JSONArray parseComment(String domain, String url, String commentApi, String requestMethod, String requestBody, String requestParam, String cookie, String selector) {
+    private JSONArray parseComment(String domain, String url, String commentApi, String requestMethod,
+            String requestBody, String requestParam, String cookie, String selector) {
         OkHttpClient client = new OkHttpClient();
         Request request = null;
         switch (requestMethod) {
@@ -527,17 +675,22 @@ public class NewsScraper {
                         .addHeader("user-agent", userAgent)
                         .build();
                 break;
-        
+
             case "GET":
                 request = new Request.Builder()
                         .url(commentApi + requestParam)
                         .get()
                         .build();
                 break;
-        
+
             case "FB":
-                RequestBody fbBody = RequestBody.create(MediaType.parse("application/x-www-form-urlencoded"), requestBody);
-                String referer = "https://web.facebook.com/plugins/feedback.php?app_id=505071156342030&channel=https%3A%2F%2Fstaticxx.facebook.com%2Fx%2Fconnect%2Fxd_arbiter%2F%3Fversion%3D46%23cb%3Df2928167dcf3f63d4%26domain%3Dwww." + domain + "%26is_canvas%3Dfalse%26origin%3Dhttps%253A%252F%252Fwww." + domain + "%252Ff90c4f4b51b8817a7%26relation%3Dparent.parent&container_width=640&height=100&href=" + encodeUrl(url) + "&locale=en_GB&numposts=2&order_by=reverse_time&sdk=joey&version=v15.0&width";
+                RequestBody fbBody = RequestBody.create(MediaType.parse("application/x-www-form-urlencoded"),
+                        requestBody);
+                String referer = "https://web.facebook.com/plugins/feedback.php?app_id=505071156342030&channel=https%3A%2F%2Fstaticxx.facebook.com%2Fx%2Fconnect%2Fxd_arbiter%2F%3Fversion%3D46%23cb%3Df2928167dcf3f63d4%26domain%3Dwww."
+                        + domain + "%26is_canvas%3Dfalse%26origin%3Dhttps%253A%252F%252Fwww." + domain
+                        + "%252Ff90c4f4b51b8817a7%26relation%3Dparent.parent&container_width=640&height=100&href="
+                        + encodeUrl(url)
+                        + "&locale=en_GB&numposts=2&order_by=reverse_time&sdk=joey&version=v15.0&width";
                 request = new Request.Builder()
                         .url(commentApi)
                         .post(fbBody)
@@ -557,12 +710,12 @@ public class NewsScraper {
                         .header("user-agent", userAgent)
                         .build();
                 break;
-        
+
             default:
                 logger.info("Unsupported request method: " + requestMethod);
         }
         JSONArray jsonArrayComment = new JSONArray();
-        if(request!=null) {
+        if (request != null) {
             try (Response response = client.newCall(request).execute()) {
                 if (response.isSuccessful()) {
                     String responseBody = response.body().string();
@@ -577,14 +730,14 @@ public class NewsScraper {
                         return jsonArrayComment;
                     }
 
-                    if("FB".equals(requestMethod)) {
+                    if ("FB".equals(requestMethod)) {
                         responseBody = responseBody.substring(responseBody.indexOf("{"));
                     }
                     JSONObject jsonSelector = new JSONObject(selector);
                     String jsonPath = jsonSelector.getString("jsonPath");
                     JSONArray selectorArray = jsonSelector.getJSONArray("selector");
                     List<Map<String, Object>> commentList = JsonPath.parse(responseBody).read(jsonPath);
-                    if("FB".equals(requestMethod)) {
+                    if ("FB".equals(requestMethod)) {
                         List<Map<String, Object>> combinedData = new ArrayList<>();
                         for (Map<String, Object> comment : commentList) {
                             String authorID = (String) comment.get("authorID");
@@ -606,16 +759,16 @@ public class NewsScraper {
                         jsonArrayComment = new JSONArray(combinedData);
 
                     } else {
-                    
+
                         for (Map<String, Object> obj : commentList) {
                             JSONObject jsonCommentResult = new JSONObject();
 
                             Integer like = 0;
                             Integer dislike = 0;
-                
+
                             for (int i = 0; i < selectorArray.length(); i++) {
                                 JSONObject field = selectorArray.getJSONObject(i);
-                                String fieldName = field.keys().next(); 
+                                String fieldName = field.keys().next();
                                 JSONObject fieldDetails = field.getJSONObject(fieldName);
                                 String fieldType = fieldDetails.getString("type");
                                 String fieldPath = fieldDetails.optString("path", null);
@@ -646,7 +799,7 @@ public class NewsScraper {
                                     }
                                 }
 
-                                if(fieldName.equals("comment") && value.toString().contains("nodes")) {
+                                if (fieldName.equals("comment") && value.toString().contains("nodes")) {
                                     JSONObject commentJsonObject = new JSONObject(value.toString());
 
                                     String textComment = commentJsonObject
@@ -660,36 +813,38 @@ public class NewsScraper {
                                             .getString("text");
                                     value = textComment;
                                 }
-                
-                                if (fieldName.equals("like") && value == null) value = 0;
-                                if (fieldName.equals("dislike") && value == null) value = 0;
 
-                                if(fieldName.equals("like") && value != null) {
+                                if (fieldName.equals("like") && value == null)
+                                    value = 0;
+                                if (fieldName.equals("dislike") && value == null)
+                                    value = 0;
+
+                                if (fieldName.equals("like") && value != null) {
                                     like = Integer.valueOf(value.toString());
-                                } 
+                                }
 
-                                if(fieldName.equals("dislike") && value != null) {
-                                    dislike = Integer.valueOf(value.toString())*(-1);
-                                } 
+                                if (fieldName.equals("dislike") && value != null) {
+                                    dislike = Integer.valueOf(value.toString()) * (-1);
+                                }
 
                                 like = like + dislike;
 
-                                if(!fieldName.equals("dislike")) {
-                                    if(fieldName.equals("like")) {
+                                if (!fieldName.equals("dislike")) {
+                                    if (fieldName.equals("like")) {
                                         jsonCommentResult.put("like", like);
                                     } else {
                                         jsonCommentResult.put(fieldName, value);
                                     }
                                 }
-            
+
                             }
 
-                            if(jsonCommentResult.getString("comment").length()!=0)
+                            if (jsonCommentResult.getString("comment").length() != 0)
                                 jsonArrayComment.put(jsonCommentResult);
                         }
 
                     }
-            
+
                 } else {
                     logger.error("[ERROR] Request failed: " + response.code());
                 }
@@ -702,14 +857,12 @@ public class NewsScraper {
         }
 
         return jsonArrayComment;
-        
+
     }
 
     private static String completeRequestBodyOrParam(String requestString, String articleId) {
         return requestString.replace("articleId", articleId);
     }
-
-    
 
     private String encodeUrl(String url) {
         try {
@@ -727,9 +880,9 @@ public class NewsScraper {
         int enDashIndex = text.indexOf("–");
         int emDashIndex = text.indexOf("—");
         if ((dashIndex >= 0 && dashIndex <= 50) ||
-            (doubleDashIndex >= 0 && doubleDashIndex <= 50) ||
-            (enDashIndex >= 0 && enDashIndex <= 50) ||
-            (emDashIndex >= 0 && emDashIndex <= 50)) {
+                (doubleDashIndex >= 0 && doubleDashIndex <= 50) ||
+                (enDashIndex >= 0 && enDashIndex <= 50) ||
+                (emDashIndex >= 0 && emDashIndex <= 50)) {
             return text.replaceAll(regex, "").trim();
         } else {
             return text; // return if doesn't found
@@ -757,7 +910,5 @@ public class NewsScraper {
         String uuidString = uuid.toString();
         return uuidString;
     }
-    
 
 }
-
