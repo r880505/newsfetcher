@@ -32,7 +32,7 @@ public class SolrService {
 
     private static final Logger logger = LogManager.getLogger(SolrService.class);
     private SolrClient solrClient;
-    private static final ExecutorService executorService = Executors.newFixedThreadPool(500); 
+    private static final ExecutorService executorService = Executors.newFixedThreadPool(500);
     private Boolean solrIsSecure;
     private Boolean solrIsCluster;
     private String solrHost;
@@ -69,8 +69,8 @@ public class SolrService {
     private List<String> getSolrZkHosts() {
         solrZkHosts = SolrConfig.getSolrZkHosts();
         return Arrays.stream(solrZkHosts.split("\\s+"))
-            .filter(host -> !host.trim().isEmpty())
-            .collect(Collectors.toList());
+                .filter(host -> !host.trim().isEmpty())
+                .collect(Collectors.toList());
     }
 
     private String getSolrHost() {
@@ -89,17 +89,17 @@ public class SolrService {
                 try {
                     // Initailize solr client
                     SolrClient solr = solrClient;
-                    
-                    if(solrClient==null) {
+
+                    if (solrClient == null) {
                         solr = getSolrClient();
-                    } 
-                    
+                    }
+
                     // Add the document to Solr
                     solr.add(solrDocument);
-            
+
                     // Commit the changes
                     solr.commit();
-            
+
                     logger.info("[DEBUG] Solr | Successfully inserted to Solr as single entry");
                     return true;
                 } catch (IOException | SolrServerException e) {
@@ -118,17 +118,17 @@ public class SolrService {
                 try {
                     // Initailize solr client
                     SolrClient solr = solrClient;
-                    
-                    if(solrClient==null) {
+
+                    if (solrClient == null) {
                         solr = getSolrClient();
-                    } 
-                    
+                    }
+
                     // Add the document to Solr
                     solr.add(solrDocuments);
-            
+
                     // Commit the changes
                     solr.commit();
-            
+
                     logger.info("[DEBUG] Solr | Successfully inserted to Solr as list");
                     return true;
                 } catch (IOException | SolrServerException e) {
@@ -137,6 +137,15 @@ public class SolrService {
                 }
             }
         });
+    }
+
+    public SolrDocumentList querySolr(SolrQuery query) throws SolrServerException, IOException {
+        SolrClient solr = solrClient;
+        if (solr == null) {
+            solr = getSolrClient();
+        }
+        QueryResponse response = solr.query(query);
+        return response.getResults();
     }
 
     private SolrClient getSolrClient() throws IOException {
@@ -150,7 +159,8 @@ public class SolrService {
                 if (solrIsCluster) {
                     zkHosts = getSolrZkHosts();
                     solrCollection = getSolrCollection();
-                    CloudSolrClient.Builder builder = new CloudSolrClient.Builder().withZkHost(zkHosts).withZkChroot("/solr");
+                    CloudSolrClient.Builder builder = new CloudSolrClient.Builder().withZkHost(zkHosts)
+                            .withZkChroot("/solr");
                     CloudSolrClient solrServer = builder.build();
                     solrServer.setDefaultCollection(solrCollection);
                     solrServer.connect();
@@ -163,5 +173,5 @@ public class SolrService {
         }
         return solrClient;
     }
-    
+
 }

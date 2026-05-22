@@ -22,14 +22,14 @@ public class JsoupHelper {
     public static Document getDocument(String url) throws IOException {
         try {
             Connection.Response response = Jsoup.connect(url)
-                                                .userAgent(userAgent)
-                                                .referrer("https://www.google.com")
-                                                .execute();
+                    .userAgent(userAgent)
+                    .referrer("https://www.google.com")
+                    .execute();
             int statusCode = response.statusCode();
             if (statusCode != 200) {
                 logger.error("[ERROR] | HTTP error: " + statusCode + " - " + response.statusMessage());
             }
-    
+
             return response.parse();
         } catch (IOException e) {
             logger.error("[ERROR] Failed to connect to URL: " + url);
@@ -56,15 +56,15 @@ public class JsoupHelper {
 
     public static String getNews(Document document, String selector) throws IOException {
         Elements paragraphs = getElements(document, selector);
-    
+
         StringBuilder content = new StringBuilder();
-        for(Element paragraph : paragraphs) {
-            if(paragraph.text().toLowerCase().length() != 0) {
+        for (Element paragraph : paragraphs) {
+            if (paragraph.text().toLowerCase().length() != 0) {
                 content.append(paragraph.text().trim() + " ");
             }
         }
         String result = content.toString().trim();
-    
+
         return result;
     }
 
@@ -119,7 +119,7 @@ public class JsoupHelper {
     public static String parseDatePublished(Document document) {
         List<NewsArticle> newsArticles = JsonHelper.getNewsArticles(document);
         String datePublished = "";
-        for (NewsArticle newsArticle : newsArticles) { 
+        for (NewsArticle newsArticle : newsArticles) {
             datePublished = DateUtils.standarizeDatetime(newsArticle.getDatePublished(), "Asia/Jakarta");
         }
         return datePublished;
@@ -129,7 +129,7 @@ public class JsoupHelper {
         for (String selector : selectors) {
             Element element = getElements(document, selector).first();
             if (element != null) {
-                String[] attributes = {"data-src", "src", "content"};
+                String[] attributes = { "data-src", "src", "content" };
                 for (String attribute : attributes) {
                     String attrValue = element.attr(attribute);
                     if (!attrValue.isEmpty()) {
@@ -145,12 +145,12 @@ public class JsoupHelper {
         Element keywordsMetaTag = document.selectFirst("meta[name=keywords]");
         if (keywordsMetaTag != null) {
             String keywordsContent = keywordsMetaTag.attr("content");
-    
+
             if (keywordsContent != null && !keywordsContent.trim().isEmpty()) {
                 return keywordsContent.split(",\\s*");
             }
         }
-        return new String[]{};
+        return new String[] {};
     }
 
     public static String getJSONMetadataAndRemoveHTMLTag(Document document) {
@@ -158,8 +158,9 @@ public class JsoupHelper {
         Elements elementsScript = document.select("script[type=application/ld+json]");
         for (Element elementScr : elementsScript) {
             String jsonContent = elementScr.html();
-            if (jsonContent.contains("NewsArticle") || jsonContent.contains("Article") || 
-                jsonContent.contains("\"@type\":\"NewsArticle\"") || jsonContent.contains("\"@type\":\"Article\"")) {
+            if (jsonContent.contains("NewsArticle") || jsonContent.contains("Article") ||
+                    jsonContent.contains("\"@type\":\"NewsArticle\"")
+                    || jsonContent.contains("\"@type\":\"Article\"")) {
                 selectedScript = jsonContent;
                 break;
             }
@@ -173,11 +174,11 @@ public class JsoupHelper {
             if (selector.contains("meta")) {
                 articleId = document.selectFirst(selector).attr("content");
             } else {
-                articleId = document.selectFirst(selector).text(); 
+                articleId = document.selectFirst(selector).text();
             }
-    
+
             return articleId;
-    
+
         } catch (Exception e) {
             e.printStackTrace();
             return null;

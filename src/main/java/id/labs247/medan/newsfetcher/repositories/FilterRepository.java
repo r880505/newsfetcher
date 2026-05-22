@@ -19,25 +19,10 @@ public class FilterRepository {
     public List<String> getAllContentFilter() throws IOException {
         List<String> filters = new ArrayList<>();
         try (Connection connection = this.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT LOWER(filter) AS filter FROM content_filter");
-             ResultSet resultSet = statement.executeQuery()) {
-            
-            while (resultSet.next()) {
-                String filter = resultSet.getString("filter");
-                filters.add(filter);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return filters;
-    }
+                PreparedStatement statement = connection
+                        .prepareStatement("SELECT LOWER(filter) AS filter FROM content_filter");
+                ResultSet resultSet = statement.executeQuery()) {
 
-    public List<String> getAllContentFilter() throws IOException {
-        List<String> filters = new ArrayList<>();
-        try (Connection connection = this.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT LOWER(filter) AS filter FROM content_filter");
-             ResultSet resultSet = statement.executeQuery()) {
-            
             while (resultSet.next()) {
                 String filter = resultSet.getString("filter");
                 filters.add(filter);
@@ -51,9 +36,9 @@ public class FilterRepository {
     public List<String> getAllUrlFilter() throws IOException {
         List<String> filters = new ArrayList<>();
         try (Connection connection = this.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT filter FROM url_filter ");
-             ResultSet resultSet = statement.executeQuery()) {
-            
+                PreparedStatement statement = connection.prepareStatement("SELECT filter FROM url_filter ");
+                ResultSet resultSet = statement.executeQuery()) {
+
             while (resultSet.next()) {
                 String filter = resultSet.getString("filter");
                 filters.add(filter);
@@ -63,5 +48,5 @@ public class FilterRepository {
         }
         return filters;
     }
-    
+
 }

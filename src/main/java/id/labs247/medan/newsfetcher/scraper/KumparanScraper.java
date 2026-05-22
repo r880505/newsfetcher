@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
@@ -15,12 +16,15 @@ import id.labs247.medan.newsfetcher.repositories.CrawlMediaRepository;
 import id.labs247.medan.newsfetcher.repositories.FilterRepository;
 import id.labs247.medan.newsfetcher.models.CrawlMedia;
 
+
 public class KumparanScraper {
 
     private static final Logger logger = LogManager.getLogger(KumparanScraper.class);
     private final KafkaService kafkaService = new KafkaService();
     private final CrawlMediaRepository crawlMediaRepository = new CrawlMediaRepository();
     private final FilterRepository filterRepository = new FilterRepository();
+    private final OkHttpClient httpClient = new OkHttpClient();
+
 
     public void parseIndexPage() throws IOException, Exception {
         String domain = "kumparan.com";
@@ -35,7 +39,6 @@ public class KumparanScraper {
         logger.info(String.format("[DEBUG] %s | Parsing Index Page", newsPortal));
         kafkaService.consumeFromKafka(topicUrl);
         List<String> linkList = new ArrayList<>();
-        OkHttpClient client = new OkHttpClient();
         List<String> urlMessagesToKafka = new ArrayList<>();
         String url = "https://graphql-v4.kumparan.com/query?deduplicate=1";
 
@@ -53,13 +56,14 @@ public class KumparanScraper {
                     .header("accept-language", "en-US,en;q=0.9")
                     .header("content-type", "text/plain")
                     .header("deduplicate", "1")
-                    .header("env-client", "a1833e44e2c236f8b39903ef49b856d5ebf05efdd8ef4513e58db32dfdeabe7299d15d1e7976b314efd400aca5fafeb1")
+                    .header("env-client",
+                            "a1833e44e2c236f8b39903ef49b856d5ebf05efdd8ef4513e58db32dfdeabe7299d15d1e7976b314efd400aca5fafeb1")
                     .header("origin", "https://kumparan.com")
                     .header("referer", "https://kumparan.com/")
                     .post(requestBody)
                     .build();
 
-            try (Response response = client.newCall(request).execute()) {
+            try (Response response = httpClient.newCall(request).execute()) {
                 String responseBody = response.body().string();
                 logger.info("Kumparan response: " + responseBody);
                 JSONArray json = new JSONArray(responseBody).getJSONObject(0).getJSONObject("data")
@@ -102,8 +106,9 @@ public class KumparanScraper {
         return true;
     }
 
-    private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain, int depth,
-                                          String urlSelect, String contentSelect) throws IOException {
+    private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain,
+            int depth,
+            String urlSelect, String contentSelect) throws IOException {
         Integer maxDepth = crawlMediaRepository.getNewsPortalByDomain(domain).getMaxDepth();
         JSONObject json = new JSONObject();
         json.put("url", url);

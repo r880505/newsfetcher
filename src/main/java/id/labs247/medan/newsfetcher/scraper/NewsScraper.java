@@ -14,8 +14,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
-
+import java.util.regex.Pattern;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,6 +47,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
+
 public class NewsScraper {
 
     private final String userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -62,7 +66,10 @@ public class NewsScraper {
 
     private FormatRepository formatRepository = new FormatRepository();
 
-    private String urlCheckerApi = ConfigurationLoader.getUrlCheckerApi();
+    // Used by urlCheckerHBase() and parseComment()
+    private final OkHttpClient httpClient = new OkHttpClient();
+    private final String urlCheckerApi = ConfigurationLoader.getUrlCheckerApi();
+
 
     private static final List<DateTimeFormatter> formatters = Arrays.asList(
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"),
@@ -191,12 +198,15 @@ public class NewsScraper {
         List<String> bacaJugaMessagesToKafka = new ArrayList<>();
         for (int i = 0; i < jsonFromKafkaList.size(); i++) {
             try {
+                JSONObject jsonToParse = new JSONObject(jsonFromKafkaList.get(i));
+                String url = jsonToParse.getString("url");
+
                 if (random.nextBoolean()) { // Randomly decide if we should sleep
                     int randomIndex = random.nextInt(sleepDurations.length);
                     int sleepDuration = sleepDurations[randomIndex];
 
                     int sleepInSeconds = sleepDuration / 1000;
-                    logger.info("[DEBUG] Sleeping for " + sleepInSeconds + " seconds");
+                    logger.info("[DEBUG] Sleeping for " + sleepInSeconds + " seconds | " + url);
 
                     try {
                         Thread.sleep(sleepDuration); // Sleep for the chosen duration
@@ -204,8 +214,6 @@ public class NewsScraper {
                         logger.error("[ERROR] Thread was interrupted: " + e.getMessage());
                     }
                 }
-                JSONObject jsonToParse = new JSONObject(jsonFromKafkaList.get(i));
-                String url = jsonToParse.getString("url");
 
                 if (url.contains("tirto.id")) {
                     logger.info("[INFO] Skipping tirto.id due to Cloudflare protection.");
@@ -228,110 +236,17 @@ public class NewsScraper {
                     StringBuilder contentBuilder = new StringBuilder();
                     String content = "";
                     for (String selector : selectorContentList) {
-                        Elements elements = document.select(selector);
-                        if (!elements.isEmpty()) {
-                            for (Element element : elements) {
-                                Element clone = element.clone();
-                                clone.select(
-                                        ".labelhead_1, .div-tag, .div-share, .div-comment, .br, .pagination, .page-links, .halaman, .card, .sidebar, .related, .ads, footer, header, #liste_terkait, .liste_terkait, .tags, .tag-list, .artikel-terkait, .related-article")
-                                        .remove();
-
-                                for (Element block : clone.select(
-                                        "p, div, br, li, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, table, tr, section, article, header, footer, strong, b, em, i, a, span")) {
-                                    block.prepend("\\n");
-                                    block.after("\\n");
-                                }
-
-                                String rawText = clone.text().replace("\\n", "\n").trim();
-                                String[] lines = rawText.split("\n");
-
-                                List<String> extraFilters = Arrays.asList(
-                                        "Tampilkan Semua", "Editor", "Tags", "beritaTerkait", "SHARE:", "komentar",
-                                        "Halaman:", "Editor:", "baca juga:", "simak juga:", "(**");
-
-                                for (int j = 0; j < lines.length; j++) {
-                                    String lineText = lines[j].trim();
-                                    if (lineText.isEmpty() || lineText.equals(":") || lineText.length() < 3) {
-                                        continue;
-                                    }
-
-                                    boolean isTrash = false;
-                                    String matchedFilter = "";
-                                    for (String filter : filterContent) {
-                                        if (lineText.toLowerCase().contains(filter.toLowerCase())) {
-                                            isTrash = true;
-                                            matchedFilter = filter;
-                                            break;
-                                        }
-                                    }
-                                    if (!isTrash) {
-                                        for (String filter : extraFilters) {
-                                            if (lineText.toLowerCase().contains(filter.toLowerCase())) {
-                                                isTrash = true;
-                                                matchedFilter = filter;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if (isTrash) {
-                                        boolean isBacaJuga = matchedFilter.toLowerCase().contains("juga");
-
-                                        if (isBacaJuga) {
-                                            int labelIdx = lineText.toLowerCase().indexOf(matchedFilter.toLowerCase());
-                                            if (labelIdx > 50) {
-                                                lineText = lineText.substring(0, labelIdx).trim();
-                                                isTrash = false;
-                                            } else {
-                                                while (j + 1 < lines.length && lines[j + 1].trim().length() < 3)
-                                                    j++;
-                                                if (j + 1 < lines.length && lines[j + 1].trim().length() < 150) {
-                                                    j++;
-                                                }
-                                                continue;
-                                            }
-                                        } else if (matchedFilter.equals("(**")
-                                                || matchedFilter.equalsIgnoreCase("Editor")) {
-                                            int labelIdx = lineText.toLowerCase().indexOf(matchedFilter.toLowerCase());
-                                            if (labelIdx > 50) {
-                                                lineText = lineText.substring(0, labelIdx).trim();
-                                                isTrash = false;
-                                            } else {
-                                                while (j + 1 < lines.length && lines[j + 1].trim().length() < 3)
-                                                    j++;
-                                                if (j + 1 < lines.length) {
-                                                    String nextLine = lines[j + 1].trim();
-                                                    if (nextLine.length() < 80 && !nextLine.startsWith("\"")) {
-                                                        j++;
-                                                    }
-                                                }
-                                                continue;
-                                            }
-                                        } else {
-                                            if (lineText.length() < 80) {
-                                                while (j + 1 < lines.length && (lines[j + 1].trim().isEmpty()
-                                                        || lines[j + 1].trim().length() < 3))
-                                                    j++;
-                                                if (j + 1 < lines.length && lines[j + 1].trim().length() < 120) {
-                                                    j++;
-                                                }
-                                            }
-                                            continue;
-                                        }
-                                    }
-
-                                    String cleanLine = JsoupHelper.unescapeHTMLSpecialCharacter(lineText);
-                                    cleanLine = filterAntaraContent(cleanLine);
-                                    contentBuilder.append(cleanLine).append("\n\n");
-                                }
-                            }
-                            content = contentBuilder.toString().trim();
-                            if (!content.isEmpty()) {
-                                content = removeBeforeDash(content);
-                                break;
-                            }
+                        content = JsoupHelper.getNews(documentWithPagination, parseFilterSelector(new ArrayList<>(), selector));
+                        if (!content.isEmpty()) {
+                            break; // Stop if content is found
                         }
                     }
+                    content = JsoupHelper.unescapeHTMLSpecialCharacter(content);
+                    content = removeBeforeDash(content);
+                    for (String filter : filterContent) {
+                        content = content.replaceAll("(?i)" + Pattern.quote(filter), "");
+                    }
+                    content = filterAntaraContent(content);
                     String cleanText = cleanTextExceptLetter(content);
                     if (content.isEmpty()) {
                         logger.warn(String.format("[WARNING] No content found for URL: %s using selectors: %s", url,
@@ -500,17 +415,42 @@ public class NewsScraper {
 
         logger.info("[DEBUG] Received news content from kafka content {}: {}", topic, jsonContentFromKafka.size());
 
+        // Batch pre-fetch existing processDates to avoid updating them if they already
+        // exist
+        List<String> urlsToBatch = new ArrayList<>();
+        Map<String, JSONObject> jsonMap = new HashMap<>();
+        for (String jsonContent : jsonContentFromKafka) {
+            try {
+                JSONObject json = new JSONObject(jsonContent);
+                String url = json.getString("url");
+                urlsToBatch.add(url);
+                jsonMap.put(url, json);
+            } catch (Exception e) {
+                logger.error("[ERROR] Failed to parse JSON from Kafka: " + jsonContent, e);
+            }
+        }
+        Map<String, String> existingDates = getExistingProcessDates(urlsToBatch);
+
         List<SolrInputDocument> solrInputDocuments = new ArrayList<>();
 
-        for (String jsonContent : jsonContentFromKafka) {
-            JSONObject jsonToParse = new JSONObject(jsonContent);
-            String url = jsonToParse.getString("url");
-            SolrInputDocument solrInputDocument = createSolrDocument(jsonToParse);
-            if (urlCheckerHBase(url) == 3) {
+        for (String url : urlsToBatch) {
+            JSONObject jsonToParse = jsonMap.get(url);
+            String existingDate = existingDates.get(url);
+
+            SolrInputDocument solrInputDocument = createSolrDocument(jsonToParse, existingDate);
+            // Allow insertion if it's a new URL (status 3) OR if we found existing data in
+            // Solr (migration case)
+            if (urlCheckerHBase(url) == 3 || existingDate != null) {
                 solrInputDocuments.add(solrInputDocument);
+                if (existingDate != null) {
+                    logger.info(
+                            "[INFO] Migrating/Updating ID for existing URL: {} | Preserving original processDate: {}",
+                            url, existingDate);
+                }
             } else {
-                logger.info("[DEBUG] HBase | The URL is already in Solr | {}", url);
+                logger.info("[DEBUG] HBase | URL already exists and no existing Solr data found to migrate | {}", url);
             }
+
         }
 
         try {
@@ -527,7 +467,6 @@ public class NewsScraper {
         }
 
     }
-
     private SolrInputDocument createSolrDocument(JSONObject jsonToParse) {
         String content = jsonToParse.optString("content");
         String cleanText = jsonToParse.optString("clean_text");
@@ -537,7 +476,7 @@ public class NewsScraper {
         String date = jsonToParse.optString("datePublished");
         String title = jsonToParse.optString("title");
         String dateId = DateUtils.parseDatetimeToDateOnly(date);
-        String solrDocId = generateUuid();
+        String solrDocId = generateUuid(url);
         JSONArray commentsArray = jsonToParse.optJSONArray("comments");
         JSONArray authorArray = jsonToParse.optJSONArray("author");
         String[] author = null;
@@ -597,7 +536,7 @@ public class NewsScraper {
         document.addField("last_checked", lastChecked);
 
         String processDate = DateUtils.convertDatetimeToUTC(LocalDateTime.now().toString() + "+07:00")
-                .format(DateTimeFormatter.ISO_INSTANT);
+                            .format(DateTimeFormatter.ISO_INSTANT);
         document.addField("processDate", processDate);
 
         return document;
@@ -648,9 +587,9 @@ public class NewsScraper {
         }
         return selector;
     }
+    
 
-    private JSONArray parseComment(String domain, String url, String commentApi, String requestMethod,
-            String requestBody, String requestParam, String cookie, String selector) {
+    private JSONArray parseComment(String domain, String url, String commentApi, String requestMethod, String requestBody, String requestParam, String cookie, String selector) {
         OkHttpClient client = new OkHttpClient();
         Request request = null;
         switch (requestMethod) {
@@ -715,7 +654,7 @@ public class NewsScraper {
                 logger.info("Unsupported request method: " + requestMethod);
         }
         JSONArray jsonArrayComment = new JSONArray();
-        if (request != null) {
+        if(request!=null) {
             try (Response response = client.newCall(request).execute()) {
                 if (response.isSuccessful()) {
                     String responseBody = response.body().string();
@@ -910,5 +849,7 @@ public class NewsScraper {
         String uuidString = uuid.toString();
         return uuidString;
     }
+    
 
 }
+

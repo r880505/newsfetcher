@@ -6,6 +6,7 @@ import java.util.List;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
@@ -19,15 +20,21 @@ import id.labs247.medan.newsfetcher.repositories.CrawlMediaRepository;
 import id.labs247.medan.newsfetcher.repositories.FilterRepository;
 import id.labs247.medan.newsfetcher.models.CrawlMedia;
 
+
 public class TvOneNewsScraper {
 
     private static final Logger logger = LogManager.getLogger(TvOneNewsScraper.class);
     private final String userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-        private final String userAgentClientHints = "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"";
+    private final String userAgentClientHints = "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"";
 
     private final CrawlMediaRepository crawlMediaRepository = new CrawlMediaRepository();
     private final FilterRepository filterRepository = new FilterRepository();
     private final KafkaService kafkaService = new KafkaService();
+    private final OkHttpClient httpClient = new OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build();
 
     public void parseIndexPage(String dateToParse, String topicUrl) throws IOException, Exception {
         String domain = "tvonenews.com";
@@ -40,7 +47,6 @@ public class TvOneNewsScraper {
         int depth = 0;
         String dateUrl1 = dateFormatter(dateToParse, "yyyy-MM-dd", "yyyy-MM-dd");
         String dateUrl2 = dateFormatter(dateToParse, "yyyy-MM-dd", "yyyy/MM/dd");
-        OkHttpClient client = new OkHttpClient();
         String newsPortal = getNameOfNewsPortal(domain);
         logger.info(String.format("[DEBUG] %s | Parsing Index Page", newsPortal));
         kafkaService.consumeFromKafka(topicUrl);
@@ -75,19 +81,21 @@ public class TvOneNewsScraper {
                     .addHeader("x-requested-with", "XMLHttpRequest")
                     .build();
 
-            Response response = client.newCall(request).execute();
+            Response response = httpClient.newCall(request).execute();
             try {
                 Document document = Jsoup.parse(response.body().string());
                 Elements elements = document.select(urlSelector);
                 for (Element linkElement : elements) {
                     String href = linkElement.attr("href");
                     if (href.length() != 0 && depth <= maxDepth && isValidLink(href, urlFilters)) {
-                        JSONObject jsonUrl = createJsonKafkaUrl(href, baseUrl + dateUrl1 + "?type=art", domain, domain, depth, urlSelector, contentSelector);
+                        JSONObject jsonUrl = createJsonKafkaUrl(href, baseUrl + dateUrl1 + "?type=art", domain, domain,
+                                depth, urlSelector, contentSelector);
                         urlMessagesToKafka.add(jsonUrl.toString());
                     }
                 }
             } catch (IOException e) {
-                logger.error(String.format("[ERROR] %s | Failed to scrape Index Page | %s", newsPortal, e.getMessage()));
+                logger.error(
+                        String.format("[ERROR] %s | Failed to scrape Index Page | %s", newsPortal, e.getMessage()));
             }
         }
         logger.info(String.format("[DEBUG] %s | Sending news URL data to Kafka", newsPortal));
@@ -115,8 +123,9 @@ public class TvOneNewsScraper {
         return true;
     }
 
-    private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain, int depth,
-                                          String urlSelect, String contentSelect) throws IOException {
+    private JSONObject createJsonKafkaUrl(String url, String landingUrl, String originalDomain, String domain,
+            int depth,
+            String urlSelect, String contentSelect) throws IOException {
         Integer maxDepth = crawlMediaRepository.getNewsPortalByDomain(domain).getMaxDepth();
         JSONObject json = new JSONObject();
         json.put("url", url);
